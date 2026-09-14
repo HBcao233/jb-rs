@@ -1,5 +1,6 @@
 mod database;
 
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use grammers_client::Client;
@@ -7,7 +8,6 @@ use grammers_client::media::InputMedia;
 use grammers_client::message::{Button, InputMessage, Message, ReplyMarkup};
 use grammers_client::update::{CallbackQuery, Update};
 use grammers_session::types::{PeerKind, PeerRef};
-use grammers_tl_types as tl;
 
 #[crate::on_grouped_messages]
 async fn messages_handler(client: Client, messages: Vec<Arc<Message>>) {
@@ -83,11 +83,6 @@ impl AddMergeButton {
 }
 
 async fn send_merge_button(client: Client, peer: PeerRef, messages: &[Arc<Message>]) {
-    if let Err(e) = database::insert_medias(peer.id, messages).await {
-        log::error!("保存媒体信息失败: {e}");
-        return;
-    }
-
     let text = format!("收到 {} 条媒体", messages.len());
     let message_ids: Vec<i32> = messages.iter().map(|m| m.id()).collect();
     let reply_markup = ReplyMarkup::from_buttons(&[vec![AddMergeButton::new(&message_ids).raw]]);
@@ -127,7 +122,9 @@ impl FinishMergeButton {
 }
 
 async fn handle_add_merge(callback: CallbackQuery, message_ids: Vec<i32>) {
+    let peer_id = callback.peer_id();
     log::info!("{:?}", &message_ids);
+
     let count = message_ids.len();
     let text = format!("已添加 {count} 条媒体");
     if let Err(e) = database::insert_session(callback.peer_id(), message_ids).await {
@@ -146,6 +143,9 @@ async fn handle_add_merge(callback: CallbackQuery, message_ids: Vec<i32>) {
                 if let Err(e) = message.pin().await {
                     log::error!("置顶消息失败: {e}");
                 }
+                if let Err(e) = database::insert_pinned(peer_id, message.id()).await {
+                    log::error!("记录置顶消息失败: {e}");
+                }
             }
             Err(e) => log::error!("回复失败按钮回调失败: {e}"),
         }
@@ -159,64 +159,54 @@ async fn handle_finish_merge(callback: CallbackQuery, client: Client) {
         .await
         .unwrap_or(None)
         .unwrap_or_else(|| peer_id.to_ambient_ref());
-    let msg_id = match &callback.raw {
-        tl::enums::Update::BotCallbackQuery(update) => Some(update.msg_id),
-        _ => None,
-    };
 
     match database::get_session(peer_id).await {
         Ok(message_ids) => {
             let want = message_ids.len();
-            let medias = match database::get_medias(peer_id, message_ids).await {
-                Ok(medias) => medias,
-                Err(e) => {
-                    log::error!("获取合并媒体失败: {e}");
-                    return;
-                }
+            let mut success_count: usize = 0;
+
+            let uniq_ids: Vec<i32> = {
+                let mut seen = HashSet::new();
+                message_ids
+                    .iter()
+                    .copied()
+                    .filter(|id| seen.insert(*id))
+                    .collect()
             };
-
-            let mut fail_count = 0;
-            let medias: Vec<_> = medias
-                .into_iter()
-                .filter_map(|x| {
-                    if x.is_none() {
-                        fail_count += 1;
+            let mut cache: HashMap<i32, Message> = HashMap::with_capacity(uniq_ids.len());
+            for chunk in uniq_ids.chunks(100) {
+                match client.get_messages_by_id(peer_ref, chunk).await {
+                    Ok(messages) => {
+                        for m in messages.into_iter().flatten() {
+                            cache.insert(m.id(), m);
+                        }
                     }
-                    x
-                })
-                .collect();
-
-            if medias.is_empty() {
-                if let Err(e) = callback.answer().alert("媒体获取失败").send().await {
-                    log::error!("回复失败按钮回调失败: {e}");
+                    Err(e) => log::error!("获取消息失败: {e}"),
                 }
-            } else {
-                let medias: Vec<_> = medias
-                    .into_iter()
-                    .map(|x| InputMedia::new().media(x))
+            }
+
+            for chunk in message_ids.chunks(10) {
+                let medias: Vec<InputMedia> = chunk
+                    .iter()
+                    .filter_map(|id| cache.get(id))
+                    .map(build_input_media)
                     .collect();
-                let count = medias.len();
-
-                let mut iter = medias.into_iter();
-                loop {
-                    let chunk: Vec<_> = iter.by_ref().take(10).collect();
-                    if chunk.is_empty() {
-                        break;
-                    }
-                    let chunk_size = chunk.len();
-                    if let Err(e) = client.send_album(peer_ref, chunk).await {
-                        log::error!("发送合并媒体失败: {e}");
-                        fail_count += chunk_size;
-                    }
+                if medias.is_empty() {
+                    continue;
                 }
 
-                let text = format!(
-                    "已成功合并 {} / {} 条媒体, 失败: {}",
-                    count, want, fail_count
-                );
-                if let Err(e) = callback.answer().respond(text).await {
-                    log::error!("回复失败按钮回调失败: {e}");
+                let n = medias.len();
+                match client.send_album(peer_ref, medias).await {
+                    Ok(_) => {
+                        success_count += n;
+                    }
+                    Err(e) => log::error!("发送合并媒体失败: {e}"),
                 }
+            }
+
+            let text = format!("已成功合并 {} / {} 条媒体", success_count, want);
+            if let Err(e) = callback.answer().respond(text).await {
+                log::error!("回复失败按钮回调失败: {e}");
             }
         }
         Err(e) => {
@@ -224,13 +214,31 @@ async fn handle_finish_merge(callback: CallbackQuery, client: Client) {
         }
     }
 
-    if let Some(msg_id) = msg_id {
-        if let Err(e) = client.delete_messages(peer_ref, &[msg_id]).await {
-            log::error!("删除消息失败: {e}")
+    match database::get_pinned(peer_id).await {
+        Ok(pinned) => {
+            if let Err(e) = client.delete_messages(peer_ref, &pinned).await {
+                log::error!("删除消息失败: {e}");
+            }
+        }
+        Err(e) => {
+            log::error!("获取置顶消息失败: {e}");
         }
     }
 
     if let Err(e) = database::finish_session(peer_id).await {
         log::error!("完成合并失败: {e}")
     }
+}
+
+fn build_input_media(m: &Message) -> InputMedia {
+    let mut input = InputMedia::new().caption(m.text());
+    if let Some(media) = m.media() {
+        if let Some(raw) = media.to_raw_input_media() {
+            input = input.media(raw);
+        }
+    }
+    if let Some(fmt_entities) = m.fmt_entities() {
+        input = input.fmt_entities(fmt_entities.clone());
+    }
+    input
 }

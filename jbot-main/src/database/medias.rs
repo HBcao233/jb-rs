@@ -26,6 +26,7 @@ const VERSION: i64 = 1;
 struct Database(Connection);
 
 #[repr(u8)]
+#[derive(Copy, Clone, Debug)]
 enum MediaType {
     Photo = 1,
     Video = 2,
