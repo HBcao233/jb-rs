@@ -8,7 +8,8 @@ use anyhow::Context;
 use data_source::{get_tweet, parse_msg};
 use grammers_client::Client;
 use grammers_client::media::{InputMedia, Media};
-use grammers_client::message::{InputMessage, Message};
+use grammers_client::message::{Button, InputMessage, Message, ReplyMarkup};
+use grammers_client::update::{CallbackQuery, Update};
 use grammers_session::types::{PeerKind, PeerRef};
 use grammers_tl_types as tl;
 use regex::regex;
@@ -66,6 +67,18 @@ async fn handler(client: Client, message: Arc<Message>) {
     }
 
     if !matched && text.starts_with("/tid") {
+        for (_, [tid]) in regex!(r"(\d{13,20})")
+            .captures_iter(text)
+            .map(|c| c.extract())
+        {
+            matched = true;
+            if let Err(e) = send_twitter(client.clone(), peer_ref, msg_id, tid.to_string()).await {
+                log::error!("发送twitter失败: {e:?}");
+            }
+        }
+    }
+
+    if !matched && text.starts_with("/tid") {
         if let Err(e) = client
             .send_message(
                 peer_ref,
@@ -75,6 +88,19 @@ async fn handler(client: Client, message: Arc<Message>) {
         {
             log::error!("发送帮助信息失败: {e:?}");
         }
+    }
+}
+
+#[crate::on_update]
+async fn callback_handler(client: Client, update: Update) {
+    match update {
+        Update::CallbackQuery(callback) => {
+            let data = callback.data();
+            if let Some(tid) = GetOriginalButton::from_data(data) {
+                return send_original(client, callback, tid).await;
+            }
+        }
+        _ => {}
     }
 }
 
@@ -314,8 +340,230 @@ async fn send_twitter(
                 }
             }
         }
+
+        let reply_markup =
+            ReplyMarkup::from_buttons_row(&[GetOriginalButton::new(tid.parse().unwrap()).raw]);
+        if let Err(e) = client
+            .send_message(
+                peer_ref,
+                InputMessage::new()
+                    .text(format!("[{tid}] 解析完成"))
+                    .reply_to(Some(msg_id))
+                    .reply_markup(reply_markup),
+            )
+            .await
+        {
+            log::error!("发送消息失败: {e}");
+        }
     }
     mid.delete().await?;
 
     Ok(())
+}
+
+pub struct GetOriginalButton {
+    pub raw: Button,
+}
+
+impl GetOriginalButton {
+    const ID: [u8; 4] = crate::id!("twitter_get_original");
+
+    pub fn new(tid: u64) -> Self {
+        let mut data = Vec::new();
+        data.extend_from_slice(&Self::ID);
+        data.extend_from_slice(&tid.to_le_bytes());
+        let raw = Button::data("获取原图", data);
+        Self { raw }
+    }
+
+    pub fn from_data(data: &[u8]) -> Option<u64> {
+        if &data[..4] == Self::ID {
+            let tid = u64::from_le_bytes(data[4..].try_into().unwrap());
+            Some(tid)
+        } else {
+            None
+        }
+    }
+}
+
+async fn send_original(client: Client, callback: CallbackQuery, tid: u64) {
+    log::info!("[send_original] tid: {}", &tid);
+
+    let peer_id = callback.peer_id();
+    let peer_ref = callback
+        .peer_ref()
+        .await
+        .ok()
+        .and_then(|x| x)
+        .unwrap_or_else(|| peer_id.to_ambient_ref());
+    let mid = match client
+        .send_message(
+            peer_ref,
+            InputMessage::new().text(format!("[{tid}] 请等待...")),
+        )
+        .await
+    {
+        Ok(m) => m,
+        Err(e) => {
+            log::error!("发送消息失败: {e}");
+            let _ = callback.answer().alert("消息发送失败").send().await;
+            return;
+        }
+    };
+
+    let wreq_client = crate::curl::get_client().build().unwrap();
+    let tweet = match get_tweet(&wreq_client, &tid.to_string()).await {
+        Ok(tweet) => tweet,
+        Err(e) => {
+            let tip = format!("[{tid}] {e}");
+            let _ = mid.edit(tip).await;
+            let _ = callback.answer().send().await;
+            return;
+        }
+    };
+
+    let mut medias = Vec::new();
+    if let Some(entities) = &tweet.entities().media {
+        let headers = Vec::new();
+        let count = entities.len();
+        for (index, media) in entities.into_iter().enumerate() {
+            let media_type = media.r#type.as_str();
+            let key = format!("{tid}_{}", index + 1);
+
+            let cache = db::document::get(key.clone())
+                .await
+                .ok()
+                .and_then(|v| v)
+                .map(|document| {
+                    InputMedia::new().media(tl::types::InputMediaDocument {
+                        spoiler: false,
+                        id: document,
+                        video_cover: None,
+                        video_timestamp: None,
+                        ttl_seconds: None,
+                        query: None,
+                    })
+                });
+
+            let input_media = if let Some(m) = cache {
+                log::info!("使用已发送过的文件: {key}");
+                m
+            } else {
+                let _ = mid
+                    .edit(format!("[{tid}] 媒体下载中 {} / {}...", index + 1, count))
+                    .await;
+
+                let (ext, url, mime_type) = match media_type {
+                    "photo" => {
+                        let url = &media.media_url_https;
+                        let url = if url.contains('?') {
+                            format!("{}&name=orig", url)
+                        } else {
+                            format!("{}?name=orig", url)
+                        };
+                        ("jpg", url, "image/jpeg")
+                    }
+                    "video" => {
+                        let video = media
+                            .video_info
+                            .as_ref()
+                            .unwrap()
+                            .variants
+                            .iter()
+                            .max_by_key(|v| {
+                                if v.content_type == "video/mp4" {
+                                    v.bitrate.unwrap_or(0)
+                                } else {
+                                    0
+                                }
+                            });
+                        ("mp4", video.unwrap().url.clone(), "video/mp4")
+                    }
+                    _ => {
+                        log::warn!("不支持的媒体类型: {}", media_type);
+                        continue;
+                    }
+                };
+                let name = format!("{key}.{ext}");
+
+                let path = match stream_download(&wreq_client, url, &name, &headers).await {
+                    Ok(path) => path,
+                    Err(e) => {
+                        let tip = format!("[{tid}] 媒体 {} 下载失败", index + 1);
+                        log::error!("{tip}: {e}");
+                        let _ = mid.edit(tip).await;
+                        let _ = callback.answer().send().await;
+                        return;
+                    }
+                };
+
+                let _ = mid
+                    .edit(format!("[{tid}] 媒体上传中 {} / {}...", index + 1, count))
+                    .await;
+                let Ok(uploaded) = client.upload_file(path).await else {
+                    let _ = mid
+                        .edit(format!("[{tid}] 媒体 {} 上传失败", index + 1))
+                        .await;
+                    let _ = callback.answer().send().await;
+                    return;
+                };
+
+                InputMedia::new().media(tl::types::InputMediaUploadedDocument {
+                    nosound_video: true,
+                    force_file: true,
+                    spoiler: false,
+                    file: uploaded.raw,
+                    thumb: None,
+                    mime_type: mime_type.to_string(),
+                    attributes: vec![
+                        tl::types::DocumentAttributeFilename { file_name: name }.into(),
+                    ],
+                    stickers: None,
+                    ttl_seconds: None,
+                    video_cover: None,
+                    video_timestamp: None,
+                })
+            };
+
+            medias.push(input_media);
+        }
+    }
+
+    if medias.is_empty() {
+        let _ = client
+            .send_message(peer_ref, InputMessage::new().text("该推文不存在媒体"))
+            .await;
+    } else {
+        let messages = match client.send_album(peer_ref, medias).await {
+            Ok(m) => m,
+            Err(e) => {
+                let text = format!("[{tid}] 媒体发送失败");
+                log::error!("{text}: {e:?}");
+                let _ = mid.edit(text).await;
+                let _ = callback.answer().send().await;
+                return;
+            }
+        };
+
+        for (index, message) in messages.into_iter().enumerate() {
+            let key = format!("{tid}_{}", index + 1);
+            if let Some(m) = message {
+                if let Some(media) = m.media() {
+                    match media {
+                        Media::Document(document) => match document.to_raw_input_document() {
+                            tl::enums::InputDocument::Document(x) => {
+                                db::document::insert(key.clone(), x).await.unwrap();
+                                log::info!("添加缓存文件: {key}");
+                            }
+                            _ => {}
+                        },
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    let _ = mid.delete().await;
+    let _ = callback.answer().send().await;
 }
