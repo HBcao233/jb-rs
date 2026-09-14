@@ -7,7 +7,7 @@ use grammers_client::message::Message;
 use grammers_session::types::PeerId;
 use tokio::time::{Duration, sleep};
 
-const GROUPED_MILLIS: u64 = 500;
+const GROUPED_INTERVAL: Duration = Duration::from_millis(1000);
 
 // peer_id: GroupedMedias
 type PeerGroupedMedias = BTreeMap<i64, GroupedMedias>;
@@ -65,7 +65,7 @@ impl GroupedMedias {
 
         self.task = Some(tokio::spawn(async move {
             if messages.len() >= 10 {
-                sleep(Duration::from_millis(GROUPED_MILLIS)).await;
+                sleep(GROUPED_INTERVAL).await;
 
                 ended.store(true, Ordering::SeqCst);
             }
