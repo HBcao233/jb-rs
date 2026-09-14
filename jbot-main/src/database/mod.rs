@@ -1,3 +1,3 @@
 mod medias;
 
-pub use medias::{photo, video};
+pub use medias::{get_media, insert_from_message};

@@ -9,7 +9,6 @@ use std::sync::{Arc, OnceLock};
 
 use data_source::{get_bili, get_gaia, get_playurl, parse_msg, validate_gaia};
 use grammers_client::Client;
-use grammers_client::media::Media;
 use grammers_client::message::{Button, InputMessage, Message, ReplyMarkup};
 use grammers_session::types::{PeerId, PeerKind, PeerRef};
 use grammers_tl_types as tl;
@@ -248,21 +247,11 @@ async fn send_bili(
 
     let key = format!("{bvid}_{cid}");
 
-    let input_media: Option<tl::enums::InputMedia> = if let Some(document) =
-        db::video::get(key.clone()).await?
+    let input_media: Option<tl::enums::InputMedia> = if let Some(media) =
+        db::get_media(&key).await?
     {
         log::info!("使用已发送过的媒体: {key}");
-        Some(
-            tl::types::InputMediaDocument {
-                spoiler: false,
-                id: document,
-                video_cover: None,
-                video_timestamp: None,
-                ttl_seconds: None,
-                query: None,
-            }
-            .into(),
-        )
+        Some(media)
     } else {
         let playurl = match get_playurl(&wreq_client, aid, &bvid, cid, None).await {
             Ok(p) => p,
@@ -562,31 +551,14 @@ async fn send_bili(
         input_message = input_message.media(m);
     }
     match client.send_message(peer_ref, input_message).await {
-        Ok(message) => {
-            if let Some(media) = message.media() {
-                match media {
-                    Media::Photo(photo) => match photo.to_raw_input_photo() {
-                        tl::enums::InputPhoto::Photo(x) => {
-                            db::photo::insert(key.clone(), x).await?;
-                            log::info!("添加缓存图片: {key}");
-                        }
-                        _ => {}
-                    },
-                    Media::Document(document) => {
-                        if crate::utils::is_video(&document) {
-                            match document.to_raw_input_document() {
-                                tl::enums::InputDocument::Document(x) => {
-                                    db::video::insert(key.clone(), x).await?;
-                                    log::info!("添加缓存视频: {key}");
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                    _ => {}
-                }
+        Ok(message) => match db::insert_from_message(&message, Some(&key)).await {
+            Ok(_) => {
+                log::info!("添加缓存视频: {key}");
             }
-        }
+            Err(e) => {
+                log::error!("添加缓存视频 {key} 失败: {e}");
+            }
+        },
         Err(e) => {
             log::error!("消息发送失败: {e}");
         }

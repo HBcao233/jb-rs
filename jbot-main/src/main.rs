@@ -70,6 +70,10 @@ async fn handle_update(client: Client, update: Update) {
                 }
             }
 
+            if let Err(e) = database::insert_from_message(&message, None).await {
+                log::error!("添加缓存媒体失败: {e}");
+            }
+
             let message = Arc::new(message.into_inner());
             for handler in NEW_MESSAGE_HANDLERS {
                 handler(client.clone(), Arc::clone(&message)).await;

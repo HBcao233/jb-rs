@@ -1139,6 +1139,7 @@ dependencies = [
  "grammers-tl-types",
  "jbot-macro",
  "jiff",
+ "libsql",
  "linkme",
  "log",
  "md5",

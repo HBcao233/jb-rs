@@ -21,6 +21,7 @@ anyhow = "1.0.104"
 dotenvy = "0.15.7"
 linkme = "0.3.37"
 log = "0.4.34"
+libsql = { version = "0.9.30", default-features = false, features = ["core"] }
 tokio = { version = "1.52.3", default-features = false, features = [
     "signal", "process"
 ] }

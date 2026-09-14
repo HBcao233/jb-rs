@@ -7,7 +7,7 @@ use std::sync::{Arc, OnceLock};
 use anyhow::Context;
 use data_source::{get_tweet, parse_msg};
 use grammers_client::Client;
-use grammers_client::media::{InputMedia, Media};
+use grammers_client::media::InputMedia;
 use grammers_client::message::{Button, InputMessage, Message, ReplyMarkup};
 use grammers_client::update::{CallbackQuery, Update};
 use grammers_session::types::{PeerKind, PeerRef};
@@ -139,31 +139,9 @@ async fn send_twitter(
             let media_type = media.r#type.as_str();
             let key = format!("{tid}_{}", index + 1);
 
-            let cache = match media_type {
-                "photo" => db::photo::get(key.clone()).await?.map(|photo| {
-                    InputMedia::new().media(tl::types::InputMediaPhoto {
-                        spoiler: false,
-                        id: photo,
-                        ttl_seconds: None,
-                        live_photo: false,
-                        video: None,
-                    })
-                }),
-                "video" => db::video::get(key.clone()).await?.map(|document| {
-                    InputMedia::new().media(tl::types::InputMediaDocument {
-                        spoiler: false,
-                        id: document,
-                        video_cover: None,
-                        video_timestamp: None,
-                        ttl_seconds: None,
-                        query: None,
-                    })
-                }),
-                _ => {
-                    log::warn!("不支持的媒体类型: {}", media_type);
-                    continue;
-                }
-            };
+            let cache = db::get_media(&key)
+                .await?
+                .map(|media| InputMedia::new().media(media));
 
             let mut input_media = if let Some(m) = cache {
                 log::info!("使用已发送过的媒体: {key}");
@@ -315,27 +293,12 @@ async fn send_twitter(
         for (index, message) in messages.into_iter().enumerate() {
             let key = format!("{tid}_{}", index + 1);
             if let Some(m) = message {
-                if let Some(media) = m.media() {
-                    match media {
-                        Media::Photo(photo) => match photo.to_raw_input_photo() {
-                            tl::enums::InputPhoto::Photo(x) => {
-                                db::photo::insert(key.clone(), x).await?;
-                                log::info!("添加缓存图片: {key}");
-                            }
-                            _ => {}
-                        },
-                        Media::Document(document) => {
-                            if crate::utils::is_video(&document) {
-                                match document.to_raw_input_document() {
-                                    tl::enums::InputDocument::Document(x) => {
-                                        db::video::insert(key.clone(), x).await?;
-                                        log::info!("添加缓存视频: {key}");
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                        _ => {}
+                match db::insert_from_message(&m, Some(&key)).await {
+                    Ok(_) => {
+                        log::info!("添加缓存媒体: {key}");
+                    }
+                    Err(e) => {
+                        log::error!("添加缓存媒体 {key} 失败: {e}");
                     }
                 }
             }
@@ -428,30 +391,20 @@ async fn send_original(client: Client, callback: CallbackQuery, tid: u64) {
         let count = entities.len();
         for (index, media) in entities.into_iter().enumerate() {
             let media_type = media.r#type.as_str();
-            let key = format!("{tid}_{}", index + 1);
+            let key = format!("{tid}_{}_original", index + 1);
 
-            let cache = db::document::get(key.clone())
+            let cache = db::get_media(&key)
                 .await
                 .ok()
-                .and_then(|v| v)
-                .map(|document| {
-                    InputMedia::new().media(tl::types::InputMediaDocument {
-                        spoiler: false,
-                        id: document,
-                        video_cover: None,
-                        video_timestamp: None,
-                        ttl_seconds: None,
-                        query: None,
-                    })
-                });
+                .and_then(|v| v);
 
             let input_media = if let Some(m) = cache {
                 log::info!("使用已发送过的文件: {key}");
                 m
             } else {
-                let _ = mid
-                    .edit(format!("[{tid}] 媒体下载中 {} / {}...", index + 1, count))
-                    .await;
+                let tip = format!("[{tid}] 媒体下载中 {} / {}...", index + 1, count);
+                log::info!("{tip}");
+                let _ = mid.edit(tip).await;
 
                 let (ext, url, mime_type) = match media_type {
                     "photo" => {
@@ -497,9 +450,9 @@ async fn send_original(client: Client, callback: CallbackQuery, tid: u64) {
                     }
                 };
 
-                let _ = mid
-                    .edit(format!("[{tid}] 媒体上传中 {} / {}...", index + 1, count))
-                    .await;
+                let tip = format!("[{tid}] 媒体上传中 {} / {}...", index + 1, count);
+                log::info!("{tip}");
+                let _ = mid.edit(tip).await;
                 let Ok(uploaded) = client.upload_file(path).await else {
                     let _ = mid
                         .edit(format!("[{tid}] 媒体 {} 上传失败", index + 1))
@@ -508,7 +461,7 @@ async fn send_original(client: Client, callback: CallbackQuery, tid: u64) {
                     return;
                 };
 
-                InputMedia::new().media(tl::types::InputMediaUploadedDocument {
+                tl::types::InputMediaUploadedDocument {
                     nosound_video: true,
                     force_file: true,
                     spoiler: false,
@@ -522,10 +475,10 @@ async fn send_original(client: Client, callback: CallbackQuery, tid: u64) {
                     ttl_seconds: None,
                     video_cover: None,
                     video_timestamp: None,
-                })
+                }.into()
             };
 
-            medias.push(input_media);
+            medias.push(InputMedia::new().media(input_media));
         }
     }
 
@@ -546,18 +499,14 @@ async fn send_original(client: Client, callback: CallbackQuery, tid: u64) {
         };
 
         for (index, message) in messages.into_iter().enumerate() {
-            let key = format!("{tid}_{}", index + 1);
+            let key = format!("{tid}_{}_original", index + 1);
             if let Some(m) = message {
-                if let Some(media) = m.media() {
-                    match media {
-                        Media::Document(document) => match document.to_raw_input_document() {
-                            tl::enums::InputDocument::Document(x) => {
-                                db::document::insert(key.clone(), x).await.unwrap();
-                                log::info!("添加缓存文件: {key}");
-                            }
-                            _ => {}
-                        },
-                        _ => {}
+                match db::insert_from_message(&m, Some(&key)).await {
+                    Ok(_) => {
+                        log::info!("添加缓存媒体: {key}");
+                    }
+                    Err(e) => {
+                        log::error!("添加缓存媒体 {key} 失败: {e}");
                     }
                 }
             }
