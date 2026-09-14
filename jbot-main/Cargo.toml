@@ -26,8 +26,9 @@ tokio = { version = "1.52.3", default-features = false, features = [
     "signal", "process"
 ] }
 simple_logger = { version = "5.2.0", default-features = false, features = [
-    "colors",
+    "colors", "timestamps"
 ] }
+time = "0.3"
 regex = "1.13.1"
 wreq = { version = "0.15.3", features = ["json", "stream"] }
 wreq-util = "0.1.0"
@@ -35,7 +36,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0.20"
 futures-util = "0.3.34"
-redb = "4.2.0"
 jiff = "0.2.35"
 sysinfo = "0.39.6"
 rand = "0.10.2"

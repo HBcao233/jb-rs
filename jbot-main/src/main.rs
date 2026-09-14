@@ -20,6 +20,8 @@ use grammers_session::storages::SqliteSession;
 pub use jbot_macro::{on_grouped_messages, on_new_message, on_setup, on_update};
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
+use time::UtcOffset;
+use time::macros::format_description;
 use tokio::runtime;
 use tokio::task::JoinSet;
 use tokio::time::interval;
@@ -90,8 +92,13 @@ async fn handle_update(client: Client, update: Update) {
 }
 
 async fn async_main() {
+    let tz = UtcOffset::from_hms(8, 0, 0).unwrap();
     SimpleLogger::new()
         .with_level(LevelFilter::Info)
+        .with_utc_offset(tz)
+        .with_timestamp_format(format_description!(
+            "[year]-[month]-[day] [hour]:[minute]:[second]"
+        ))
         .init()
         .unwrap();
 
