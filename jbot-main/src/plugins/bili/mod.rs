@@ -386,8 +386,8 @@ async fn send_bili(
                     {
                         Ok(path) => Some(path),
                         Err(e) => {
-                            let tip = format!("[{bvid}] 音频下载失败");
-                            log::error!("{tip}: {e}");
+                            let tip = format!("[{bvid}] 音频下载失败: {e}");
+                            log::error!("{tip}");
                             mid.edit(tip).await?;
                             return Ok(());
                         }
@@ -424,8 +424,8 @@ async fn send_bili(
             {
                 Ok(path) => path,
                 Err(e) => {
-                    let tip = format!("[{bvid}] 视频下载失败");
-                    log::error!("{tip}: {e}");
+                    let tip = format!("[{bvid}] 视频下载失败: {e}");
+                    log::error!("{tip}");
                     mid.edit(tip).await?;
                     return Ok(());
                 }
@@ -509,8 +509,8 @@ async fn send_bili(
             let path = match stream_download(&wreq_client, url, &name, &headers).await {
                 Ok(path) => path,
                 Err(e) => {
-                    let tip = format!("[{bvid}] 下载失败");
-                    log::error!("{tip}: {e}");
+                    let tip = format!("[{bvid}] 下载失败: {e}");
+                    log::error!("{tip}");
                     mid.edit(tip).await?;
                     return Ok(());
                 }
