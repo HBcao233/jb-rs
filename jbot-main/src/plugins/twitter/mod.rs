@@ -393,10 +393,7 @@ async fn send_original(client: Client, callback: CallbackQuery, tid: u64) {
             let media_type = media.r#type.as_str();
             let key = format!("{tid}_{}_original", index + 1);
 
-            let cache = db::get_media(&key)
-                .await
-                .ok()
-                .and_then(|v| v);
+            let cache = db::get_media(&key).await.ok().and_then(|v| v);
 
             let input_media = if let Some(m) = cache {
                 log::info!("使用已发送过的文件: {key}");
@@ -475,7 +472,8 @@ async fn send_original(client: Client, callback: CallbackQuery, tid: u64) {
                     ttl_seconds: None,
                     video_cover: None,
                     video_timestamp: None,
-                }.into()
+                }
+                .into()
             };
 
             medias.push(InputMedia::new().media(input_media));
