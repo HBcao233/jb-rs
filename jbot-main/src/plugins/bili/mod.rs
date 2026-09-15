@@ -331,7 +331,7 @@ async fn send_bili(
         };
 
         let thumb_name = format!("{key}_thumb.jpg");
-        let thumb = match stream_download(&wreq_client, first_frame, &thumb_name, &headers).await {
+        let thumb = match stream_download(&wreq_client, &first_frame, &thumb_name, &headers).await {
             Ok(path) => match client.upload_file(path).await {
                 Ok(uploaded) => Some(uploaded.raw),
                 Err(e) => {
@@ -364,7 +364,7 @@ async fn send_bili(
 
                     match stream_download_with_callback(
                         &wreq_client,
-                        audio_url,
+                        &audio_url,
                         &audio_name,
                         &headers,
                         |downloaded, total| {
@@ -402,7 +402,7 @@ async fn send_bili(
             mid.edit(prefix).await?;
             let video_path = match stream_download_with_callback(
                 &wreq_client,
-                video_url,
+                &video_url,
                 &video_name,
                 &headers,
                 |downloaded, total| {
@@ -495,7 +495,7 @@ async fn send_bili(
 
             mid.edit(format!("[{bvid}] 下载中...")).await?;
             let name = format!("{key}.mp4");
-            let path = match stream_download(&wreq_client, url, &name, &headers).await {
+            let path = match stream_download(&wreq_client, &url, &name, &headers).await {
                 Ok(path) => path,
                 Err(e) => {
                     let tip = format!("[{bvid}] 下载失败: {e}");
@@ -567,7 +567,7 @@ async fn send_bili(
 
     // 封面
     let name = format!("{key}_pic.jpg");
-    let path = match stream_download(&wreq_client, pic, &name, &headers).await {
+    let path = match stream_download(&wreq_client, &pic, &name, &headers).await {
         Ok(path) => path,
         Err(e) => {
             log::error!("[{bvid}] 封面下载失败: {e}");

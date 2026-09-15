@@ -139,13 +139,11 @@ async fn send_twitter(
             let media_type = media.r#type.as_str();
             let key = format!("{tid}_{}", index + 1);
 
-            let cache = db::get_media(&key)
-                .await?
-                .map(|media| InputMedia::new().media(media));
+            let cache = db::get_media(&key).await?;
 
             let mut input_media = if let Some(m) = cache {
                 log::info!("使用已发送过的媒体: {key}");
-                m
+                InputMedia::new().media(m)
             } else {
                 mid.edit(format!("[{tid}] 媒体下载中 {} / {}...", index + 1, count))
                     .await?;
@@ -183,7 +181,7 @@ async fn send_twitter(
                 };
                 let name = format!("{key}.{ext}");
 
-                let path = match stream_download(&wreq_client, url, &name, &headers).await {
+                let path = match stream_download(&wreq_client, &url, &name, &headers).await {
                     Ok(path) => path,
                     Err(e) => {
                         let tip = format!("[{tid}] 媒体 {} 下载失败", index + 1);
@@ -212,7 +210,7 @@ async fn send_twitter(
                         };
                         let thumb_name = format!("{key}_thumb.jpg");
                         let thumb =
-                            match stream_download(&wreq_client, thumb_url, &thumb_name, &headers)
+                            match stream_download(&wreq_client, &thumb_url, &thumb_name, &headers)
                                 .await
                             {
                                 Ok(path) => match client.upload_file(path).await {
@@ -436,7 +434,7 @@ async fn send_original(client: Client, callback: CallbackQuery, tid: u64) {
                 };
                 let name = format!("{key}.{ext}");
 
-                let path = match stream_download(&wreq_client, url, &name, &headers).await {
+                let path = match stream_download(&wreq_client, &url, &name, &headers).await {
                     Ok(path) => path,
                     Err(e) => {
                         let tip = format!("[{tid}] 媒体 {} 下载失败", index + 1);

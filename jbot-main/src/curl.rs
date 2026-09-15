@@ -14,7 +14,7 @@ pub fn get_client() -> wreq::ClientBuilder {
 
 pub async fn stream_download(
     client: &wreq::Client,
-    url: String,
+    url: &str,
     name: &str,
     headers: &[(&str, String)],
 ) -> anyhow::Result<PathBuf> {
@@ -23,7 +23,7 @@ pub async fn stream_download(
 
 pub async fn stream_download_with_callback<F>(
     client: &wreq::Client,
-    url: String,
+    url: &str,
     name: &str,
     headers: &[(&str, String)],
     progress_callback: F,
@@ -51,7 +51,7 @@ where
 
     // 最多请求两次：第一次带 Range 尝试续传；若本地分片不可用，则删掉后从头再请求一次
     let (response, resume) = loop {
-        let mut request = client.get(&url);
+        let mut request = client.get(url);
         for (k, v) in headers {
             request = request.header(k.to_string(), v);
         }
