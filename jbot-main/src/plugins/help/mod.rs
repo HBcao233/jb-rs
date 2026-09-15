@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::thread::sleep;
 
 use grammers_client::Client;
-use grammers_client::message::{InputMessage, Message};
+use grammers_client::message::{Button, InputMessage, Message, ReplyMarkup};
 use grammers_session::types::PeerKind;
 use sysinfo::{Disks, System};
 
@@ -23,7 +23,7 @@ const HELP: &str = "<b>Hi! 这里是小派魔6号姬!</b>
 
 ◆ 爬虫
 ◆ 发送链接自动解析可爬取内容
-● 支持 Twitter 等站点
+● 支持 Twitter、Bilibili、Douyin 等站点
 
 对小派魔有任何建议或意见欢迎前往 <a href=\"https://t.me/HBcaoHome\">🍀派魔喵の家🍥</a> 私聊或评论喵！";
 
@@ -38,7 +38,17 @@ async fn handler(_client: Client, message: Arc<Message>) {
 
     let text = message.text();
     if text.starts_with("/start") || text.starts_with("/help") {
-        if let Err(e) = message.reply(InputMessage::new().html(HELP)).await {
+        if let Err(e) = message
+            .reply(
+                InputMessage::new()
+                    .html(HELP)
+                    .reply_markup(ReplyMarkup::from_buttons_row(&[Button::url(
+                        "源代码",
+                        "https://github.com/HBcao233/jbot",
+                    )])),
+            )
+            .await
+        {
             log::error!("消息发送失败: {e}")
         }
     } else if text.starts_with("/ping") {
