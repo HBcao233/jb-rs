@@ -190,7 +190,7 @@ pub struct DashInfo {
 pub struct DashMedia {
     pub id: i32,
     pub base_url: String,
-    // pub backup_url: Vec<String>,
+    pub backup_url: Vec<String>,
     // pub width: u16,
     // pub height: u16,
     pub mime_type: String,

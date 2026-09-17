@@ -392,31 +392,45 @@ async fn send_bili(
                 .unwrap();
             log::info!("使用 video id: {}", video.id);
 
-            let video_url = video.base_url;
+            let mut video_urls = Vec::with_capacity(video.backup_url.len() + 1);
+            video_urls.push(video.base_url);
+            video_urls.extend(video.backup_url);
             let video_name = format!("{key}_video.mp4");
 
-            let prefix = format!("[{bvid}] 下载视频中...");
-            log::info!("{prefix}");
-            bar.style(ProgressStyle::Size);
-            bar.prefix(&prefix);
-            mid.edit(prefix).await?;
-            let video_path = match stream_download_with_callback(
-                &wreq_client,
-                &video_url,
-                &video_name,
-                &headers,
-                |downloaded, total| {
-                    bar.sync_update(downloaded, total);
-                },
-            )
-            .await
-            {
-                Ok(path) => path,
-                Err(e) => {
-                    let tip = format!("[{bvid}] 视频下载失败: {e}");
-                    log::error!("{tip}");
-                    mid.edit(tip).await?;
-                    return Ok(());
+            let mut i = 0;
+            let video_path = loop {
+                let url = &video_urls[i];
+                let prefix = if i == 0 {
+                    format!("[{bvid}] 下载视频中...")
+                } else {
+                    format!("[{bvid}] 下载视频中 (重试 {i})...")
+                };
+                log::info!("{prefix}");
+                bar.style(ProgressStyle::Size);
+                bar.prefix(&prefix);
+                mid.edit(prefix).await?;
+                match stream_download_with_callback(
+                    &wreq_client,
+                    url,
+                    &video_name,
+                    &headers,
+                    |downloaded, total| {
+                        bar.sync_update(downloaded, total);
+                    },
+                )
+                .await
+                {
+                    Ok(path) => break path,
+                    Err(e) => {
+                        if i < video_urls.len() {
+                            i += 1;
+                        } else {
+                            let tip = format!("[{bvid}] 视频下载失败: {e}");
+                            log::error!("{tip}");
+                            mid.edit(tip).await?;
+                            return Ok(());
+                        }
+                    }
                 }
             };
 
