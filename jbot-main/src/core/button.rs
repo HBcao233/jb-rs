@@ -26,11 +26,11 @@ pub static ID_RECORDS: [IdRecord];
 #[macro_export]
 macro_rules! id {
     ($text:expr) => {{
-        const HASH: [u8; 4] = $crate::button::const_hash($text);
+        const HASH: [u8; 4] = $crate::core::button::const_hash($text);
 
         #[cfg(test)]
         #[linkme::distributed_slice($crate::button::ID_RECORDS)]
-        static _RECORD: $crate::button::IdRecord = $crate::button::IdRecord {
+        static _RECORD: $crate::core::button::IdRecord = $crate::button::IdRecord {
             text: $text,
             hash: HASH,
             file: file!(),

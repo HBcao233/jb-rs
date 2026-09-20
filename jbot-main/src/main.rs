@@ -1,11 +1,7 @@
 extern crate jbot_macro;
-mod button;
-pub mod curl;
+mod core;
 pub mod database;
-mod ffmpeg;
-mod grouped;
 mod plugins;
-pub mod progress;
 pub mod utils;
 
 use std::env;
@@ -17,7 +13,6 @@ use grammers_client::message::Message;
 use grammers_client::sender::{SenderPool, UpdatesConfiguration};
 use grammers_client::update::Update;
 use grammers_session::storages::SqliteSession;
-pub use jbot_macro::{on_grouped_messages, on_interval, on_new_message, on_setup, on_update};
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
 use time::UtcOffset;
@@ -26,7 +21,12 @@ use tokio::runtime;
 use tokio::task::JoinSet;
 use tokio::time::interval;
 
-pub use crate::ffmpeg::FFmpeg;
+pub use crate::core::curl;
+pub use crate::core::ffmpeg::FFmpeg;
+pub use crate::core::progress;
+pub use crate::jbot_macro::{
+    on_grouped_messages, on_interval, on_new_message, on_setup, on_update,
+};
 
 const IS_DEBUG: bool = cfg!(debug_assertions);
 
@@ -88,7 +88,7 @@ async fn handle_update(client: Client, update: Update, session: Arc<SqliteSessio
 
             if let Some(media) = message.media() {
                 if crate::utils::can_grouped(&media) {
-                    grouped::get_or_insert(client.clone(), peer_id, message);
+                    core::grouped::get_or_insert(client.clone(), peer_id, message);
                 }
             }
         }

@@ -84,7 +84,7 @@ impl GroupedMedias {
     }
 }
 
-pub(super) fn get_or_insert(client: Client, peer_id: PeerId, message: Arc<Message>) {
+pub(crate) fn get_or_insert(client: Client, peer_id: PeerId, message: Arc<Message>) {
     let peer_id = peer_id.bot_api_dialog_id().unwrap();
     let mut guard = peer_grouped_medias().lock().unwrap();
 
