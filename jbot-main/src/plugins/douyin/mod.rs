@@ -190,6 +190,7 @@ async fn send_douyin(
             log::error!("发送视频失败: {e}");
         }
 
+        mid.delete().await?;
         mid = Arc::new(
             client
                 .send_message(
