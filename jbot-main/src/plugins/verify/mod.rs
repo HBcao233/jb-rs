@@ -59,6 +59,7 @@ async fn handler(client: Client, update: Update, session: Arc<SqliteSession>) {
                     A::ChatAddUser(_) => true,
                     A::ChatDeleteUser(_) => true,
                     A::ChatJoinedByRequest => true,
+                    A::ChatJoinedViaCommunity(_) => true,
                     _ => false,
                 } {
                     let _ = message.delete().await;
