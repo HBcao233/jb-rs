@@ -2,6 +2,7 @@ mod database;
 
 use std::sync::Arc;
 
+use database::{VerifyStatus, get_status, set_status};
 use grammers_client::Client;
 use grammers_client::message::{Button, InputMessage, ReplyMarkup};
 use grammers_client::update::{CallbackQuery, Update};
@@ -14,7 +15,6 @@ use rand::prelude::IteratorRandom;
 use rand::{random_range, rng};
 
 use crate::plugins::group_config::{CONFIGS, Config};
-use database::{VerifyStatus, get_status, set_status};
 
 const VERIFY_LIMIT: SignedDuration = SignedDuration::from_mins(3);
 

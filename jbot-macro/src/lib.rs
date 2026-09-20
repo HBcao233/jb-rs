@@ -22,7 +22,7 @@ pub fn on_setup(_args: TokenStream, item: TokenStream) -> TokenStream {
 
     quote! {
         #(#attrs)*
-        #[::linkme::distributed_slice(crate::SETUPS)]
+        #[::linkme::distributed_slice(crate::core::update::SETUPS)]
         #vis #sig {
             #block
         }
@@ -47,11 +47,11 @@ pub fn on_interval(_args: TokenStream, item: TokenStream) -> TokenStream {
     }
 
     sig.asyncness = None;
-    sig.output = parse_quote!(-> crate::HandlerResult);
+    sig.output = parse_quote!(-> crate::core::update::HandlerResult);
 
     quote! {
         #(#attrs)*
-        #[::linkme::distributed_slice(crate::INTERVAL_HANDLERS)]
+        #[::linkme::distributed_slice(crate::core::update::INTERVAL_HANDLERS)]
         #vis #sig {
             Box::pin(async move #block)
         }
@@ -76,11 +76,11 @@ pub fn on_update(_args: TokenStream, item: TokenStream) -> TokenStream {
     }
 
     sig.asyncness = None;
-    sig.output = parse_quote!(-> crate::HandlerResult);
+    sig.output = parse_quote!(-> crate::core::update::HandlerResult);
 
     quote! {
         #(#attrs)*
-        #[::linkme::distributed_slice(crate::HANDLERS)]
+        #[::linkme::distributed_slice(crate::core::update::HANDLERS)]
         #vis #sig {
             Box::pin(async move #block)
         }
@@ -108,11 +108,11 @@ pub fn on_new_message(_args: TokenStream, item: TokenStream) -> TokenStream {
     }
 
     sig.asyncness = None;
-    sig.output = parse_quote!(-> crate::HandlerResult);
+    sig.output = parse_quote!(-> crate::core::update::HandlerResult);
 
     quote! {
         #(#attrs)*
-        #[::linkme::distributed_slice(crate::NEW_MESSAGE_HANDLERS)]
+        #[::linkme::distributed_slice(crate::core::update::NEW_MESSAGE_HANDLERS)]
         #vis #sig {
             Box::pin(async move #block)
         }
@@ -140,11 +140,11 @@ pub fn on_grouped_messages(_args: TokenStream, item: TokenStream) -> TokenStream
     }
 
     sig.asyncness = None;
-    sig.output = parse_quote!(-> crate::HandlerResult);
+    sig.output = parse_quote!(-> crate::core::update::HandlerResult);
 
     quote! {
         #(#attrs)*
-        #[::linkme::distributed_slice(crate::GROUPED_MESSAGES_HANDLERS)]
+        #[::linkme::distributed_slice(crate::core::update::GROUPED_MESSAGES_HANDLERS)]
         #vis #sig {
             Box::pin(async move #block)
         }

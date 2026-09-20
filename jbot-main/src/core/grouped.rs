@@ -70,7 +70,7 @@ impl GroupedMedias {
                 ended.store(true, Ordering::SeqCst);
             }
 
-            for handler in crate::GROUPED_MESSAGES_HANDLERS {
+            for handler in crate::core::update::GROUPED_MESSAGES_HANDLERS {
                 handler(client.clone(), messages.clone()).await;
             }
 
