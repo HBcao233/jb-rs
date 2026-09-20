@@ -1,24 +1,9 @@
-use std::sync::{Arc, OnceLock};
-
 use grammers_client::media::{Document, Media};
 use grammers_client::message::Message;
 use grammers_tl_types as tl;
 use libsql::{Builder, Connection};
 use libsql::{named_params, params};
 use tokio::fs;
-
-static MEDIAS_DB: OnceLock<Arc<Database>> = OnceLock::new();
-
-async fn medias_db() -> libsql::Result<Arc<Database>> {
-    Ok(match MEDIAS_DB.get() {
-        Some(db) => Arc::clone(&db),
-        None => {
-            let db = Arc::new(Database::open().await?);
-            MEDIAS_DB.set(Arc::clone(&db)).unwrap();
-            db
-        }
-    })
-}
 
 const VERSION: i64 = 1;
 
@@ -147,27 +132,6 @@ impl Database {
             Err(e) => Err(e),
         }
     }
-
-    /*
-    async fn fetch_all<
-        T,
-        P: libsql::params::IntoParams,
-        F: FnMut(libsql::Row) -> libsql::Result<T>,
-    >(
-        &self,
-        statement: &str,
-        params: P,
-        mut select: F,
-    ) -> libsql::Result<Vec<T>> {
-        let statement = self.0.prepare(statement).await?;
-        let mut rows = statement.query(params).await?;
-        let mut result = Vec::new();
-        while let Some(row) = rows.next().await? {
-            result.push(select(row)?);
-        }
-        Ok(result)
-    }
-    */
 }
 
 pub async fn insert_from_message(message: &Message, key: Option<&str>) -> libsql::Result<()> {
@@ -212,7 +176,7 @@ pub async fn insert_from_message(message: &Message, key: Option<&str>) -> libsql
         return Ok(());
     };
 
-    let db = medias_db().await?;
+    let db = Database::open().await?;
     let transaction = db.begin_transaction().await?;
     let stmt = transaction
         .prepare("INSERT INTO medias (peer_id, message_id, grouped_id, media_type, file_id, access_hash, file_reference, key)
@@ -260,7 +224,7 @@ fn parse_media_type(document: &Document) -> Option<MediaType> {
 }
 
 pub async fn get_media(key: &str) -> libsql::Result<Option<tl::enums::InputMedia>> {
-    let db = medias_db().await?;
+    let db = Database::open().await?;
     let map_row = |row: libsql::Row| {
         let media_type: MediaType = (row.get::<u32>(4)? as u8).try_into().unwrap();
         let file_id = row.get::<i64>(5)?;
