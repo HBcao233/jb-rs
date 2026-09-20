@@ -7,6 +7,7 @@ use grammers_client::Client;
 use grammers_client::media::InputMedia;
 use grammers_client::message::{Button, InputMessage, Message, ReplyMarkup};
 use grammers_client::update::{CallbackQuery, Update};
+use grammers_session::storages::SqliteSession;
 use grammers_session::types::{PeerKind, PeerRef};
 
 #[crate::on_grouped_messages]
@@ -30,7 +31,7 @@ async fn messages_handler(client: Client, messages: Vec<Arc<Message>>) {
 }
 
 #[crate::on_update]
-async fn callback_handler(client: Client, update: Update) {
+async fn callback_handler(client: Client, update: Update, _session: Arc<SqliteSession>) {
     match update {
         Update::CallbackQuery(callback) => {
             let data = callback.data();

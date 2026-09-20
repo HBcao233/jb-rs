@@ -31,6 +31,35 @@ pub fn on_setup(_args: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
+pub fn on_interval(_args: TokenStream, item: TokenStream) -> TokenStream {
+    let ItemFn {
+        attrs,
+        vis,
+        mut sig,
+        block,
+        modifiers: _,
+    } = parse_macro_input!(item as ItemFn);
+
+    if sig.asyncness.is_none() {
+        return syn::Error::new_spanned(&sig.fn_token, "#[on_interval] must be used to `async fn`")
+            .to_compile_error()
+            .into();
+    }
+
+    sig.asyncness = None;
+    sig.output = parse_quote!(-> crate::HandlerResult);
+
+    quote! {
+        #(#attrs)*
+        #[::linkme::distributed_slice(crate::INTERVAL_HANDLERS)]
+        #vis #sig {
+            Box::pin(async move #block)
+        }
+    }
+    .into()
+}
+
+#[proc_macro_attribute]
 pub fn on_update(_args: TokenStream, item: TokenStream) -> TokenStream {
     let ItemFn {
         attrs,

@@ -17,7 +17,7 @@ use grammers_client::message::Message;
 use grammers_client::sender::{SenderPool, UpdatesConfiguration};
 use grammers_client::update::Update;
 use grammers_session::storages::SqliteSession;
-pub use jbot_macro::{on_grouped_messages, on_new_message, on_setup, on_update};
+pub use jbot_macro::{on_grouped_messages, on_interval, on_new_message, on_setup, on_update};
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
 use time::UtcOffset;
@@ -28,17 +28,22 @@ use tokio::time::interval;
 
 pub use crate::ffmpeg::FFmpeg;
 
+const IS_DEBUG: bool = cfg!(debug_assertions);
+
 const SYNC_INTERVAL: Duration = Duration::from_secs(60);
 const MAX_SYNC_INTERVAL: Duration = Duration::from_secs(600);
 const SESSION_FILE: &str = "jbot.session";
 
 type HandlerResult = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
-type Handler = fn(client: Client, update: Update) -> HandlerResult;
+type Handler = fn(client: Client, update: Update, session: Arc<SqliteSession>) -> HandlerResult;
 type NewMessageHandler = fn(client: Client, message: Arc<Message>) -> HandlerResult;
 type GroupedMessagesHandler = fn(client: Client, message: Vec<Arc<Message>>) -> HandlerResult;
 
 #[linkme::distributed_slice]
 pub static SETUPS: [fn() -> anyhow::Result<()>];
+
+#[linkme::distributed_slice]
+pub static INTERVAL_HANDLERS: [fn(client: Client, session: Arc<SqliteSession>) -> HandlerResult];
 
 #[linkme::distributed_slice]
 pub static HANDLERS: [Handler];
@@ -49,15 +54,15 @@ pub static NEW_MESSAGE_HANDLERS: [NewMessageHandler];
 #[linkme::distributed_slice]
 pub static GROUPED_MESSAGES_HANDLERS: [GroupedMessagesHandler];
 
-async fn handle_update(client: Client, update: Update) {
+async fn handle_update(client: Client, update: Update, session: Arc<SqliteSession>) {
     for handler in HANDLERS {
-        handler(client.clone(), update.clone()).await;
+        handler(client.clone(), update.clone(), Arc::clone(&session)).await;
     }
 
     match update {
         Update::NewMessage(message) => {
             let peer_id = message.peer_id();
-            if !message.outgoing() {
+            if !message.outgoing() && message.action().is_none() {
                 if let Some(sender_id) = message.sender_id() {
                     let sender_info = crate::utils::get_peer_info(&sender_id, message.sender());
                     let text = crate::utils::safe_truncate(message.text(), 30);
@@ -141,12 +146,19 @@ async fn async_main() {
 
     let mut handler_tasks = JoinSet::new();
     let mut updates = client
-        .stream_updates(updates, UpdatesConfiguration { catch_up: true })
+        .stream_updates(
+            updates,
+            UpdatesConfiguration {
+                catch_up: !IS_DEBUG,
+            },
+        )
         .await
         .unwrap();
-    let mut timer = interval(SYNC_INTERVAL);
+
+    let mut sync_timer = interval(SYNC_INTERVAL);
     let mut dirty = false;
     let mut last_save_time = Instant::now();
+    let mut timer = interval(Duration::from_secs(1));
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => break,
@@ -155,7 +167,7 @@ async fn async_main() {
                 match result {
                     Ok(update) => {
                         let handle = client.clone();
-                        handler_tasks.spawn(handle_update(handle, update));
+                        handler_tasks.spawn(handle_update(handle, update, Arc::clone(&session)));
                     }
                     Err(e) => {
                         log::error!("获取更新失败: {e}");
@@ -167,7 +179,7 @@ async fn async_main() {
                     log::error!("handler task panicked: {e}");
                 }
             }
-            _ = timer.tick() => {
+            _ = sync_timer.tick() => {
                 if dirty && (handler_tasks.is_empty() || last_save_time.elapsed() > MAX_SYNC_INTERVAL) {
                     log::info!("Saving session periodically...");
                     match updates
@@ -181,6 +193,11 @@ async fn async_main() {
                             log::error!("Sync update state failed: {e}");
                         }
                     }
+                }
+            }
+            _ = timer.tick() => {
+                for handler in INTERVAL_HANDLERS {
+                    handler_tasks.spawn(handler(client.clone(), Arc::clone(&session)));
                 }
             }
         }
