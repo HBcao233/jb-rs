@@ -16,7 +16,7 @@ use rand::{random_range, rng};
 use crate::plugins::group_config::{CONFIGS, Config};
 use database::{VerifyStatus, get_status, set_status};
 
-const VERIFY_LIMIT: SignedDuration = SignedDuration::from_mins(1);
+const VERIFY_LIMIT: SignedDuration = SignedDuration::from_mins(3);
 
 const VERIFY_ENABLED_KEY: &str = "verify_enabled";
 
