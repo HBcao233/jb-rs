@@ -4,6 +4,7 @@ use jiff::Timestamp;
 use regex::regex;
 use serde_json::{Value, json};
 use tokio::fs;
+use tracing::{error, info};
 use wreq::StatusCode;
 use wreq::header::{AUTHORIZATION, COOKIE, HeaderMap, HeaderName, HeaderValue};
 
@@ -53,12 +54,12 @@ fn twitter_headers() -> HeaderMap {
 pub async fn get_tweet(client: &wreq::Client, tid: &str) -> Result<Tweet, GetTweetError> {
     let cache_dir = Path::new("cache/tweets");
     if let Err(e) = fs::create_dir_all(cache_dir).await {
-        log::error!("缓存文件夹创建失败: {e:?}");
+        error!("缓存文件夹创建失败: {e:?}");
     }
 
     let cache_file = cache_dir.join(&format!("{tid}.json"));
     let mut res: Value = if let Ok(text) = fs::read_to_string(&cache_file).await {
-        log::info!("使用缓存: {}", cache_file.display());
+        info!("使用缓存: {}", cache_file.display());
         serde_json::from_str(&text)?
     } else {
         let variables = json!({
@@ -90,9 +91,9 @@ pub async fn get_tweet(client: &wreq::Client, tid: &str) -> Result<Tweet, GetTwe
         let res = response.json().await?;
         let pretty = serde_json::to_string_pretty(&res)?;
         if let Err(e) = fs::write(&cache_file, &pretty).await {
-            log::error!("缓存json文件失败: {e:?}");
+            error!("缓存json文件失败: {e:?}");
         } else {
-            log::info!("写入缓存: {}", cache_file.display());
+            info!("写入缓存: {}", cache_file.display());
         }
         res
     };
@@ -198,7 +199,7 @@ pub fn parse_msg(tweet: &Tweet) -> String {
             full_text.push_str(&c.strftime("%Y-%m-%d %H:%M:%S").to_string());
         }
         Err(e) => {
-            log::error!("created_at {} 解析失败: {e}", tweet.created_at());
+            error!("created_at {} 解析失败: {e}", tweet.created_at());
         }
     }
 

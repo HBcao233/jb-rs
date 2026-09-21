@@ -4,15 +4,16 @@ mod types;
 
 use std::sync::Arc;
 
-use data_source::{get_aweme_detail, parse_msg};
 use grammers_client::Client;
 use grammers_client::media::InputMedia;
 use grammers_client::message::{InputMessage, Message};
 use grammers_session::types::{PeerKind, PeerRef};
 use grammers_tl_types as tl;
 use regex::regex;
+use tracing::{error, info, warn};
 use wreq::redirect::Policy;
 
+use self::data_source::{get_aweme_detail, parse_msg};
 use crate::curl::{stream_download, stream_download_with_callback};
 use crate::database as db;
 use crate::progress::{Progress, ProgressScheduler, ProgressStyle};
@@ -50,15 +51,15 @@ async fn handler(client: Client, message: Arc<Message>) {
     let mut short_matched = false;
     if let Some(caps) = short_re.captures(&text) {
         let (_, [short_id]) = caps.extract();
-        log::info!("v.douyin.com: {short_id}");
+        info!("v.douyin.com: {short_id}");
         let url = format!("https://v.douyin.com/{}", short_id);
         let wreq_client = crate::curl::get_client().build().unwrap();
         let response = match wreq_client.get(url).send().await {
             Ok(r) => r,
             Err(e) => {
-                log::error!("v.douyin.com 请求失败: {e}");
+                error!("v.douyin.com 请求失败: {e}");
                 if let Err(e) = message.reply("短链解析失败").await {
-                    log::error!("消息发送失败: {e}");
+                    error!("消息发送失败: {e}");
                 }
                 return;
             }
@@ -72,7 +73,7 @@ async fn handler(client: Client, message: Arc<Message>) {
             short_matched = true;
         } else {
             if let Err(e) = message.reply("短链解析失败").await {
-                log::error!("消息发送失败: {e}");
+                error!("消息发送失败: {e}");
             }
             return;
         }
@@ -81,7 +82,7 @@ async fn handler(client: Client, message: Arc<Message>) {
     let mut matched = false;
     if let Some(caps) = re.captures(&text) {
         let (_, [aid]) = caps.extract();
-        log::info!("input: {aid}");
+        info!("input: {aid}");
 
         if short_matched {
             let _ = message
@@ -91,7 +92,7 @@ async fn handler(client: Client, message: Arc<Message>) {
 
         matched = true;
         if let Err(e) = send_douyin(client.clone(), peer_ref, msg_id, aid).await {
-            log::error!("发送douyin失败: {e:?}");
+            error!("发送douyin失败: {e:?}");
         }
     }
 
@@ -103,7 +104,7 @@ async fn handler(client: Client, message: Arc<Message>) {
             )
             .await
         {
-            log::error!("发送帮助信息失败: {e:?}");
+            error!("发送帮助信息失败: {e:?}");
         }
     }
 }
@@ -129,7 +130,7 @@ async fn send_douyin(
     let detail = match get_aweme_detail(&wreq_client, aid).await {
         Ok(d) => d,
         Err(e) => {
-            log::error!("{prefix} 获取Aweme失败: {e}");
+            error!("{prefix} 获取Aweme失败: {e}");
             mid.edit(format!("{prefix} {e}")).await?;
             return Ok(());
         }
@@ -137,7 +138,7 @@ async fn send_douyin(
     // let aid = detail.aweme_id.clone();
     let msg = parse_msg(&detail);
     // let aweme_type = detail.aweme_type;
-    // log::info!("aweme_type: {aweme_type}");
+    // info!("aweme_type: {aweme_type}");
 
     let down_client = crate::curl::get_client()
         .redirect(Policy::limited(5))
@@ -153,12 +154,12 @@ async fn send_douyin(
             Ok(path) => match client.upload_file(path).await {
                 Ok(uploaded) => Some(uploaded.raw),
                 Err(e) => {
-                    log::warn!("上传 {thumb_name} 失败: {e}");
+                    warn!("上传 {thumb_name} 失败: {e}");
                     None
                 }
             },
             Err(e) => {
-                log::warn!("下载 {thumb_name} 失败: {e}");
+                warn!("下载 {thumb_name} 失败: {e}");
                 None
             }
         };
@@ -189,7 +190,7 @@ async fn send_douyin(
         )
         .await
         {
-            log::error!("发送视频失败: {e}");
+            error!("发送视频失败: {e}");
         }
 
         mid.delete().await?;
@@ -226,7 +227,7 @@ async fn send_douyin(
             )
             .await
             {
-                log::error!("发送视频失败: {e}");
+                error!("发送视频失败: {e}");
             }
         }
     }
@@ -248,7 +249,7 @@ async fn send_douyin(
         for (index, image) in images.iter().enumerate() {
             let key = format!("douyin_image_{aid}_p{}", index);
             let mut media = if let Some(m) = db::get_media(&key).await? {
-                log::info!("使用已发送过的媒体: {key}");
+                info!("使用已发送过的媒体: {key}");
                 InputMedia::new().media(m)
             } else {
                 let name = format!("{key}.jpeg");
@@ -260,7 +261,7 @@ async fn send_douyin(
                     Ok(path) => path,
                     Err(e) => {
                         let tip = format!("{prefix} 图片 {} 下载失败: {e}", index + 1);
-                        log::error!("{tip}");
+                        error!("{tip}");
                         mid.edit(tip).await?;
                         return Ok(());
                     }
@@ -270,7 +271,7 @@ async fn send_douyin(
                     .await?;
                 let Ok(uploaded) = client.upload_file(path).await else {
                     let tip = format!("{prefix} 图片 {} 上传失败", index + 1);
-                    log::error!("{tip}");
+                    error!("{tip}");
                     mid.edit(tip).await?;
                     return Ok(());
                 };
@@ -291,10 +292,10 @@ async fn send_douyin(
                     if let Some(m) = message {
                         match db::insert_from_message(&m, Some(&key)).await {
                             Ok(_) => {
-                                log::info!("添加缓存媒体: {key}");
+                                info!("添加缓存媒体: {key}");
                             }
                             Err(e) => {
-                                log::error!("添加缓存媒体 {key} 失败: {e}");
+                                error!("添加缓存媒体 {key} 失败: {e}");
                             }
                         }
                     }
@@ -302,7 +303,7 @@ async fn send_douyin(
             }
             Err(e) => {
                 let tip = format!("{prefix} 媒体发送失败");
-                log::error!("{tip}: {e:?}");
+                error!("{tip}: {e:?}");
                 mid.edit(tip).await?;
                 return Ok(());
             }
@@ -337,7 +338,7 @@ async fn send_video(
         let name = format!("{key}.mp4");
 
         let p = format!("{prefix} 下载视频中...");
-        log::info!("{p}");
+        info!("{p}");
         bar.style(ProgressStyle::Size);
         bar.prefix(&p);
         mid.edit(p).await?;
@@ -355,14 +356,14 @@ async fn send_video(
             Ok(path) => path,
             Err(e) => {
                 let tip = format!("{prefix} 视频下载失败: {e}");
-                log::error!("{tip}");
+                error!("{tip}");
                 mid.edit(tip).await?;
                 return Ok(());
             }
         };
 
         let p = format!("{prefix} 上传中...");
-        log::info!("{p}");
+        info!("{p}");
         bar.style(ProgressStyle::Size);
         bar.prefix(&p);
         mid.edit(p).await?;
@@ -417,14 +418,14 @@ async fn send_video(
     {
         Ok(message) => match db::insert_from_message(&message, Some(&key)).await {
             Ok(_) => {
-                log::info!("添加缓存视频: {key}");
+                info!("添加缓存视频: {key}");
             }
             Err(e) => {
-                log::error!("添加缓存视频 {key} 失败: {e}");
+                error!("添加缓存视频 {key} 失败: {e}");
             }
         },
         Err(e) => {
-            log::error!("消息发送失败: {e}");
+            error!("消息发送失败: {e}");
         }
     }
 

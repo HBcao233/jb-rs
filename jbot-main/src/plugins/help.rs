@@ -6,6 +6,7 @@ use grammers_client::Client;
 use grammers_client::message::{Button, InputMessage, Message, ReplyMarkup};
 use grammers_session::types::PeerKind;
 use sysinfo::{Disks, System};
+use tracing::error;
 
 const HELP: &str = "<b>Hi! 这里是小派魔6号姬!</b>
 小派魔正在用 Rust 重构中，有任何问题欢迎前往 <a href=\"https://t.me/HBcaoHome\">🍀派魔喵の家🍥</a> 反馈喵！
@@ -49,16 +50,16 @@ async fn handler(_client: Client, message: Arc<Message>) {
             )
             .await
         {
-            log::error!("消息发送失败: {e}")
+            error!("消息发送失败: {e}")
         }
     } else if text.starts_with("/ping") {
         if let Err(e) = message.reply("小派魔存活中").await {
-            log::error!("消息发送失败: {e}")
+            error!("消息发送失败: {e}")
         }
     } else if text.starts_with("/status") {
         let text = get_server_status().await;
         if let Err(e) = message.reply(InputMessage::new().html(text)).await {
-            log::error!("消息发送失败: {e}")
+            error!("消息发送失败: {e}")
         }
     }
 }

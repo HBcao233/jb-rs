@@ -5,7 +5,6 @@ use std::env;
 use std::sync::{Arc, OnceLock};
 
 use anyhow::Context;
-use data_source::{get_tweet, parse_msg};
 use grammers_client::Client;
 use grammers_client::media::InputMedia;
 use grammers_client::message::{Button, InputMessage, Message, ReplyMarkup};
@@ -14,7 +13,9 @@ use grammers_session::storages::SqliteSession;
 use grammers_session::types::{PeerKind, PeerRef};
 use grammers_tl_types as tl;
 use regex::regex;
+use tracing::{error, info, warn};
 
+use self::data_source::{get_tweet, parse_msg};
 use crate::curl::stream_download;
 use crate::database as db;
 
@@ -63,7 +64,7 @@ async fn handler(client: Client, message: Arc<Message>) {
     {
         matched = true;
         if let Err(e) = send_twitter(client.clone(), peer_ref, msg_id, tid.to_string()).await {
-            log::error!("发送twitter失败: {e:?}");
+            error!("发送twitter失败: {e:?}");
         }
     }
 
@@ -74,7 +75,7 @@ async fn handler(client: Client, message: Arc<Message>) {
         {
             matched = true;
             if let Err(e) = send_twitter(client.clone(), peer_ref, msg_id, tid.to_string()).await {
-                log::error!("发送twitter失败: {e:?}");
+                error!("发送twitter失败: {e:?}");
             }
         }
     }
@@ -87,7 +88,7 @@ async fn handler(client: Client, message: Arc<Message>) {
             )
             .await
         {
-            log::error!("发送帮助信息失败: {e:?}");
+            error!("发送帮助信息失败: {e:?}");
         }
     }
 }
@@ -111,7 +112,7 @@ async fn send_twitter(
     msg_id: i32,
     tid: String,
 ) -> anyhow::Result<()> {
-    log::info!("tid: {tid}");
+    info!("tid: {tid}");
 
     let mid = client
         .send_message(
@@ -143,7 +144,7 @@ async fn send_twitter(
             let cache = db::get_media(&key).await?;
 
             let mut input_media = if let Some(m) = cache {
-                log::info!("使用已发送过的媒体: {key}");
+                info!("使用已发送过的媒体: {key}");
                 InputMedia::new().media(m)
             } else {
                 mid.edit(format!("[{tid}] 媒体下载中 {} / {}...", index + 1, count))
@@ -176,7 +177,7 @@ async fn send_twitter(
                                 video_info.duration_millis,
                             ),
                             None => {
-                                log::error!("type={} 但 video_info 为空", media_type);
+                                error!("type={} 但 video_info 为空", media_type);
                                 let _ = mid.edit("video_info 为空").await;
                                 return Ok(());
                             }
@@ -185,7 +186,7 @@ async fn send_twitter(
                     }
                     _ => {
                         let text = format!("暂不支持的媒体类型: {}", media_type);
-                        log::error!("{}", text);
+                        error!("{}", text);
                         let _ = mid.edit(text).await;
                         return Ok(());
                     }
@@ -196,7 +197,7 @@ async fn send_twitter(
                     Ok(path) => path,
                     Err(e) => {
                         let tip = format!("[{tid}] 媒体 {} 下载失败", index + 1);
-                        log::error!("{tip}: {e}");
+                        error!("{tip}: {e}");
                         mid.edit(tip).await?;
                         return Ok(());
                     }
@@ -227,12 +228,12 @@ async fn send_twitter(
                                 Ok(path) => match client.upload_file(path).await {
                                     Ok(uploaded) => Some(uploaded.raw),
                                     Err(e) => {
-                                        log::warn!("上传 {thumb_name} 失败: {e}");
+                                        warn!("上传 {thumb_name} 失败: {e}");
                                         None
                                     }
                                 },
                                 Err(e) => {
-                                    log::warn!("下载 {thumb_name} 失败: {e}");
+                                    warn!("下载 {thumb_name} 失败: {e}");
                                     None
                                 }
                             };
@@ -243,7 +244,7 @@ async fn send_twitter(
                             match crate::ffmpeg::get_duration(&path).await {
                                 Ok(d) => d,
                                 Err(e) => {
-                                    log::warn!("获取视频 ({}) 时长失败: {e}", path.display());
+                                    warn!("获取视频 ({}) 时长失败: {e}", path.display());
                                     0.0
                                 }
                             }
@@ -278,7 +279,7 @@ async fn send_twitter(
                         InputMedia::new().media(m)
                     }
                     _ => {
-                        log::warn!("不支持的媒体类型: {}", media_type);
+                        warn!("不支持的媒体类型: {}", media_type);
                         continue;
                     }
                 }
@@ -303,7 +304,7 @@ async fn send_twitter(
             Ok(m) => m,
             Err(e) => {
                 let text = format!("[{tid}] 媒体发送失败");
-                log::error!("{text}: {e:?}");
+                error!("{text}: {e:?}");
                 mid.edit(text).await?;
                 return Ok(());
             }
@@ -314,10 +315,10 @@ async fn send_twitter(
             if let Some(m) = message {
                 match db::insert_from_message(&m, Some(&key)).await {
                     Ok(_) => {
-                        log::info!("添加缓存媒体: {key}");
+                        info!("添加缓存媒体: {key}");
                     }
                     Err(e) => {
-                        log::error!("添加缓存媒体 {key} 失败: {e}");
+                        error!("添加缓存媒体 {key} 失败: {e}");
                     }
                 }
             }
@@ -335,7 +336,7 @@ async fn send_twitter(
             )
             .await
         {
-            log::error!("发送消息失败: {e}");
+            error!("发送消息失败: {e}");
         }
     }
     mid.delete().await?;
@@ -369,7 +370,7 @@ impl GetOriginalButton {
 }
 
 async fn send_original(client: Client, callback: CallbackQuery, tid: u64) {
-    log::info!("[send_original] tid: {}", &tid);
+    info!("[send_original] tid: {}", &tid);
 
     let peer_id = callback.peer_id();
     let peer_ref = callback
@@ -387,7 +388,7 @@ async fn send_original(client: Client, callback: CallbackQuery, tid: u64) {
     {
         Ok(m) => m,
         Err(e) => {
-            log::error!("发送消息失败: {e}");
+            error!("发送消息失败: {e}");
             let _ = callback.answer().alert("消息发送失败").send().await;
             return;
         }
@@ -415,11 +416,11 @@ async fn send_original(client: Client, callback: CallbackQuery, tid: u64) {
             let cache = db::get_media(&key).await.ok().and_then(|v| v);
 
             let input_media = if let Some(m) = cache {
-                log::info!("使用已发送过的文件: {key}");
+                info!("使用已发送过的文件: {key}");
                 m
             } else {
                 let tip = format!("[{tid}] 媒体下载中 {} / {}...", index + 1, count);
-                log::info!("{tip}");
+                info!("{tip}");
                 let _ = mid.edit(tip).await;
 
                 let (ext, url, mime_type) = match media_type {
@@ -449,7 +450,7 @@ async fn send_original(client: Client, callback: CallbackQuery, tid: u64) {
                         ("mp4", video.unwrap().url.clone(), "video/mp4")
                     }
                     _ => {
-                        log::warn!("不支持的媒体类型: {}", media_type);
+                        warn!("不支持的媒体类型: {}", media_type);
                         continue;
                     }
                 };
@@ -459,7 +460,7 @@ async fn send_original(client: Client, callback: CallbackQuery, tid: u64) {
                     Ok(path) => path,
                     Err(e) => {
                         let tip = format!("[{tid}] 媒体 {} 下载失败", index + 1);
-                        log::error!("{tip}: {e}");
+                        error!("{tip}: {e}");
                         let _ = mid.edit(tip).await;
                         let _ = callback.answer().send().await;
                         return;
@@ -467,7 +468,7 @@ async fn send_original(client: Client, callback: CallbackQuery, tid: u64) {
                 };
 
                 let tip = format!("[{tid}] 媒体上传中 {} / {}...", index + 1, count);
-                log::info!("{tip}");
+                info!("{tip}");
                 let _ = mid.edit(tip).await;
                 let Ok(uploaded) = client.upload_file(path).await else {
                     let _ = mid
@@ -508,7 +509,7 @@ async fn send_original(client: Client, callback: CallbackQuery, tid: u64) {
             Ok(m) => m,
             Err(e) => {
                 let text = format!("[{tid}] 媒体发送失败");
-                log::error!("{text}: {e:?}");
+                error!("{text}: {e:?}");
                 let _ = mid.edit(text).await;
                 let _ = callback.answer().send().await;
                 return;
@@ -520,10 +521,10 @@ async fn send_original(client: Client, callback: CallbackQuery, tid: u64) {
             if let Some(m) = message {
                 match db::insert_from_message(&m, Some(&key)).await {
                     Ok(_) => {
-                        log::info!("添加缓存媒体: {key}");
+                        info!("添加缓存媒体: {key}");
                     }
                     Err(e) => {
-                        log::error!("添加缓存媒体 {key} 失败: {e}");
+                        error!("添加缓存媒体 {key} 失败: {e}");
                     }
                 }
             }

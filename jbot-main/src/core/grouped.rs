@@ -6,6 +6,7 @@ use grammers_client::client::Client;
 use grammers_client::message::Message;
 use grammers_session::types::PeerId;
 use tokio::time::{Duration, sleep};
+use tracing::error;
 
 const GROUPED_INTERVAL: Duration = Duration::from_millis(1000);
 
@@ -42,7 +43,7 @@ impl GroupedMedias {
 
     pub fn push(&mut self, message: Arc<Message>) {
         if self.ended.load(Ordering::SeqCst) {
-            log::error!("GroupedMedias 在任务执行完后再次被 push。");
+            error!("GroupedMedias 在任务执行完后再次被 push。");
             return;
         }
 

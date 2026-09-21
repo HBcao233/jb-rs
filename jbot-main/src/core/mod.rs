@@ -1,4 +1,5 @@
 pub(crate) mod button;
+#[cfg(feature = "core_curl")]
 pub mod curl;
 pub mod ffmpeg;
 pub(crate) mod grouped;

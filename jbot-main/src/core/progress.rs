@@ -9,6 +9,7 @@ use grammers_client::message::Message;
 use tokio::io::{self, AsyncRead, ReadBuf};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
+use tracing::error;
 
 const UPDATE_LIMIT: Duration = Duration::from_secs(1);
 
@@ -211,7 +212,7 @@ impl Progress {
                 guard.last_text = Some(text);
             }
             Err(e) => {
-                log::error!("进度条更新失败: {e}");
+                error!("进度条更新失败: {e}");
             }
         }
     }

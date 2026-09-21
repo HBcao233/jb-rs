@@ -6,6 +6,7 @@ use grammers_client::update::{CallbackQuery, Update};
 use grammers_session::Session;
 use grammers_session::storages::SqliteSession;
 use grammers_session::types::{PeerId, PeerKind};
+use tracing::{error, info};
 
 use crate::database::{get_config, set_config};
 use crate::id;
@@ -89,7 +90,7 @@ async fn handler(client: Client, message: Arc<Message>) {
                 )
                 .await
             {
-                log::error!("消息发送失败: {e}")
+                error!("消息发送失败: {e}")
             }
         }
     }
@@ -138,19 +139,19 @@ async fn handle_config_button(
     let permissions = match client.get_permissions(peer_ref, admin_ref).await {
         Ok(x) => x,
         Err(e) => {
-            log::error!("获取用户权限失败: {e}");
+            error!("获取用户权限失败: {e}");
             return;
         }
     };
     if !permissions.is_admin() {
         if let Err(e) = callback.answer().alert("没有管理员权限").send().await {
-            log::error!("alert失败: {e}");
+            error!("alert失败: {e}");
         }
         return;
     }
 
     let old = get_config(peer_id, &key).await.unwrap_or_default();
-    log::info!("peer_id: {peer_id}, key: {key}, old: {old:?}");
+    info!("peer_id: {peer_id}, key: {key}, old: {old:?}");
 
     let new = if old.as_deref() == Some(ENABLED_VALUE) {
         ""
@@ -158,7 +159,7 @@ async fn handle_config_button(
         ENABLED_VALUE
     };
     if let Err(e) = set_config(peer_id, &key, new).await {
-        log::error!("设置群聊配置失败: {e}");
+        error!("设置群聊配置失败: {e}");
     }
 
     let text = if new.is_empty() {
@@ -173,6 +174,6 @@ async fn handle_config_button(
         .edit(InputMessage::new().reply_markup(ReplyMarkup::from_buttons_row(&buttons)))
         .await
     {
-        log::error!("回应按钮查询失败: {e}");
+        error!("回应按钮查询失败: {e}");
     }
 }

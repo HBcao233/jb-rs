@@ -3,6 +3,7 @@ use std::sync::{Arc, OnceLock};
 use grammers_session::types::PeerId;
 use libsql::{Builder, Connection, Result, Value, named_params, params};
 use tokio::fs;
+use tracing::error;
 
 static MERGE_DB: OnceLock<Arc<Database>> = OnceLock::new();
 
@@ -25,7 +26,7 @@ struct Database(Connection);
 impl Database {
     async fn open() -> libsql::Result<Self> {
         if let Err(e) = fs::create_dir_all("data").await {
-            log::error!("数据文件夹创建失败: {e:?}");
+            error!("数据文件夹创建失败: {e:?}");
             return Err(libsql::Error::ConnectionFailed(
                 "数据文件夹创建失败".to_string(),
             ));

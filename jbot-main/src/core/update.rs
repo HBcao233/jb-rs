@@ -4,6 +4,7 @@ use grammers_client::Client;
 use grammers_client::message::Message;
 use grammers_client::update::Update;
 use grammers_session::storages::SqliteSession;
+use tracing::{error, info};
 
 use crate::database as db;
 
@@ -46,12 +47,12 @@ pub(crate) async fn handle_update(client: Client, update: Update, session: Arc<S
                     } else {
                         ""
                     };
-                    log::info!("{sender_info}{}: {text}", peer_info);
+                    info!("{sender_info}{}: {text}", peer_info);
                 }
             }
 
             if let Err(e) = db::insert_from_message(&message, None).await {
-                log::error!("添加缓存媒体失败: {e}");
+                error!("添加缓存媒体失败: {e}");
             }
 
             let message = Arc::new(message.into_inner());

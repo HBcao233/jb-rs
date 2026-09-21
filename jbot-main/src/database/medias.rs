@@ -4,6 +4,7 @@ use grammers_tl_types as tl;
 use libsql::{Builder, Connection};
 use libsql::{named_params, params};
 use tokio::fs;
+use tracing::error;
 
 const VERSION: i64 = 1;
 
@@ -42,7 +43,7 @@ impl TryFrom<u8> for MediaType {
 impl Database {
     async fn open() -> libsql::Result<Self> {
         if let Err(e) = fs::create_dir_all("data").await {
-            log::error!("数据文件夹创建失败: {e:?}");
+            error!("数据文件夹创建失败: {e:?}");
             return Err(libsql::Error::ConnectionFailed(
                 "数据文件夹创建失败".to_string(),
             ));

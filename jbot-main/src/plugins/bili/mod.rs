@@ -7,7 +7,6 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-use data_source::{get_bili, get_gaia, get_playurl, parse_msg, validate_gaia};
 use grammers_client::Client;
 use grammers_client::message::{Button, InputMessage, Message, ReplyMarkup};
 use grammers_session::types::{PeerId, PeerKind, PeerRef};
@@ -15,8 +14,10 @@ use grammers_tl_types as tl;
 use regex::regex;
 use tokio::fs;
 use tokio::sync::{Mutex, oneshot};
-use types::BiliId;
+use tracing::{error, info, warn};
 
+use self::data_source::{get_bili, get_gaia, get_playurl, parse_msg, validate_gaia};
+use self::types::BiliId;
 use crate::FFmpeg;
 use crate::curl::{stream_download, stream_download_with_callback};
 use crate::database as db;
@@ -34,7 +35,7 @@ static GAIA: OnceLock<Gaia> = OnceLock::new();
 fn setup() -> anyhow::Result<()> {
     let sessdata = env::var("bili_SESSDATA").ok();
     if sessdata.is_none() {
-        log::warn!("未提供 bili_SESSDATA, 可能会解析失败或画质受限");
+        warn!("未提供 bili_SESSDATA, 可能会解析失败或画质受限");
     }
     let _ = SESSDATA.set(sessdata);
     Ok(())
@@ -68,7 +69,7 @@ async fn handler(client: Client, message: Arc<Message>) {
 
     let msg_id = message.id();
     let mut text = message.text().to_string();
-    // log::info!("text: {text}");
+    // info!("text: {text}");
     if text.starts_with("validate=") {
         if let Some(tx) = gaia().lock().await.remove(&peer_id) {
             let arr: Vec<_> = text.split('&').collect();
@@ -78,7 +79,7 @@ async fn handler(client: Client, message: Arc<Message>) {
             };
             validate = validate.split('=').last().unwrap();
             seccode = seccode.split('=').last().unwrap();
-            log::info!("validate: {}, seccode: {}", validate, seccode);
+            info!("validate: {}, seccode: {}", validate, seccode);
             let _ = tx.send((validate.to_string(), seccode.to_string()));
         } else {
             let _ = message.reply("验证已过期").await;
@@ -90,15 +91,15 @@ async fn handler(client: Client, message: Arc<Message>) {
 
     if let Some(caps) = b23_re.captures(&text) {
         let (_, [b23_id]) = caps.extract();
-        log::info!("b23.tv: {b23_id}");
+        info!("b23.tv: {b23_id}");
         let url = format!("https://b23.tv/{}", b23_id);
         let wreq_client = crate::curl::get_client().build().unwrap();
         let response = match wreq_client.get(url).send().await {
             Ok(r) => r,
             Err(e) => {
-                log::error!("b23.tv请求失败: {e}");
+                error!("b23.tv请求失败: {e}");
                 if let Err(e) = message.reply("短链解析失败").await {
-                    log::error!("消息发送失败: {e}");
+                    error!("消息发送失败: {e}");
                 }
                 return;
             }
@@ -111,7 +112,7 @@ async fn handler(client: Client, message: Arc<Message>) {
             text = location.to_string();
         } else {
             if let Err(e) = message.reply("短链解析失败").await {
-                log::error!("消息发送失败: {e}");
+                error!("消息发送失败: {e}");
             }
             return;
         }
@@ -120,7 +121,7 @@ async fn handler(client: Client, message: Arc<Message>) {
     let mut matched = false;
     if let Some(caps) = re.captures(&text) {
         let (_, [id]) = caps.extract();
-        log::info!("input: {id}");
+        info!("input: {id}");
         let bili_id = if id.starts_with('a') {
             let id = id.strip_prefix("av").unwrap();
             BiliId::AV(id.parse().unwrap())
@@ -134,13 +135,13 @@ async fn handler(client: Client, message: Arc<Message>) {
             return;
         };
         if let Err(e) = send_bili(client.clone(), peer_ref, msg_id, aid, bvid).await {
-            log::error!("发送bili失败: {e:?}");
+            error!("发送bili失败: {e:?}");
         }
     }
 
     if !matched && starts_with_bili {
         if let Err(e) = message.reply(HELP).await {
-            log::error!("消息发送失败: {e}")
+            error!("消息发送失败: {e}")
         }
     }
 }
@@ -152,7 +153,7 @@ async fn send_bili(
     aid: u64,
     bvid: String,
 ) -> anyhow::Result<()> {
-    log::info!("aid: {aid}, bvid: {bvid}");
+    info!("aid: {aid}, bvid: {bvid}");
 
     let mid = client
         .send_message(
@@ -250,7 +251,7 @@ async fn send_bili(
     let input_media: Option<tl::enums::InputMedia> = if let Some(media) =
         db::get_media(&key).await?
     {
-        log::info!("使用已发送过的媒体: {key}");
+        info!("使用已发送过的媒体: {key}");
         Some(media)
     } else {
         let playurl = match get_playurl(&wreq_client, aid, &bvid, cid, None).await {
@@ -296,7 +297,7 @@ async fn send_bili(
                                     return Ok(());
                                 }
                             };
-                            log::info!("grisk_id: {grisk_id}");
+                            info!("grisk_id: {grisk_id}");
 
                             match get_playurl(&wreq_client, aid, &bvid, cid, Some(grisk_id)).await {
                                 Ok(p) => p,
@@ -315,7 +316,7 @@ async fn send_bili(
                         }
                         Err(e) => {
                             if let Err(e) = mid.edit(e.to_string()).await {
-                                log::error!("消息发送失败: {e}");
+                                error!("消息发送失败: {e}");
                             }
                             return Ok(());
                         }
@@ -323,7 +324,7 @@ async fn send_bili(
                 }
                 _ => {
                     if let Err(e) = mid.edit(e.to_string()).await {
-                        log::error!("消息发送失败: {e}");
+                        error!("消息发送失败: {e}");
                     }
                     return Ok(());
                 }
@@ -335,12 +336,12 @@ async fn send_bili(
             Ok(path) => match client.upload_file(path).await {
                 Ok(uploaded) => Some(uploaded.raw),
                 Err(e) => {
-                    log::warn!("上传 {thumb_name} 失败: {e}");
+                    warn!("上传 {thumb_name} 失败: {e}");
                     None
                 }
             },
             Err(e) => {
-                log::warn!("下载 {thumb_name} 失败: {e}");
+                warn!("下载 {thumb_name} 失败: {e}");
                 None
             }
         };
@@ -352,12 +353,12 @@ async fn send_bili(
                 None => None,
                 Some(audios) => {
                     let audio = audios.into_iter().max_by_key(|x| x.id).unwrap();
-                    log::info!("使用 audio id: {}", audio.id);
+                    info!("使用 audio id: {}", audio.id);
 
                     let audio_url = audio.base_url;
                     let audio_name = format!("{key}_audio.mp4");
                     let prefix = format!("[{bvid}] 下载音频中...");
-                    log::info!("{prefix}");
+                    info!("{prefix}");
                     bar.style(ProgressStyle::Size);
                     bar.prefix(&prefix);
                     mid.edit(prefix).await?;
@@ -376,7 +377,7 @@ async fn send_bili(
                         Ok(path) => Some(path),
                         Err(e) => {
                             let tip = format!("[{bvid}] 音频下载失败: {e}");
-                            log::error!("{tip}");
+                            error!("{tip}");
                             mid.edit(tip).await?;
                             return Ok(());
                         }
@@ -390,7 +391,7 @@ async fn send_bili(
                 .filter(|x| &x.mime_type == "video/mp4" && x.codecs.starts_with("avc1"))
                 .max_by_key(|x| x.id)
                 .unwrap();
-            log::info!("使用 video id: {}", video.id);
+            info!("使用 video id: {}", video.id);
 
             let mut video_urls = Vec::with_capacity(video.backup_url.len() + 1);
             video_urls.push(video.base_url);
@@ -405,7 +406,7 @@ async fn send_bili(
                 } else {
                     format!("[{bvid}] 下载视频中 (重试 {i})...")
                 };
-                log::info!("{prefix}");
+                info!("{prefix}");
                 bar.style(ProgressStyle::Size);
                 bar.prefix(&prefix);
                 mid.edit(prefix).await?;
@@ -426,7 +427,7 @@ async fn send_bili(
                             i += 1;
                         } else {
                             let tip = format!("[{bvid}] 视频下载失败: {e}");
-                            log::error!("{tip}");
+                            error!("{tip}");
                             mid.edit(tip).await?;
                             return Ok(());
                         }
@@ -439,7 +440,7 @@ async fn send_bili(
                 None => video_path,
                 Some(ap) => {
                     let prefix = format!("[{bvid}] 处理中...");
-                    log::info!("{prefix}");
+                    info!("{prefix}");
                     bar.style(ProgressStyle::Time);
                     bar.prefix(&prefix);
                     mid.edit(prefix).await?;
@@ -452,7 +453,7 @@ async fn send_bili(
                         Ok(p) => p,
                         Err(e) => {
                             let tip = format!("[{bvid}] 视频处理失败");
-                            log::error!("{tip}: {e}");
+                            error!("{tip}: {e}");
                             mid.edit(tip).await?;
                             return Ok(());
                         }
@@ -461,7 +462,7 @@ async fn send_bili(
             };
 
             let prefix = format!("[{bvid}] 上传中...");
-            log::info!("{prefix}");
+            info!("{prefix}");
             bar.style(ProgressStyle::Size);
             bar.prefix(&prefix);
             mid.edit(prefix).await?;
@@ -513,7 +514,7 @@ async fn send_bili(
                 Ok(path) => path,
                 Err(e) => {
                     let tip = format!("[{bvid}] 下载失败: {e}");
-                    log::error!("{tip}");
+                    error!("{tip}");
                     mid.edit(tip).await?;
                     return Ok(());
                 }
@@ -567,14 +568,14 @@ async fn send_bili(
     match client.send_message(peer_ref, input_message).await {
         Ok(message) => match db::insert_from_message(&message, Some(&key)).await {
             Ok(_) => {
-                log::info!("添加缓存视频: {key}");
+                info!("添加缓存视频: {key}");
             }
             Err(e) => {
-                log::error!("添加缓存视频 {key} 失败: {e}");
+                error!("添加缓存视频 {key} 失败: {e}");
             }
         },
         Err(e) => {
-            log::error!("消息发送失败: {e}");
+            error!("消息发送失败: {e}");
         }
     };
     let _ = mid.delete().await;
@@ -584,13 +585,13 @@ async fn send_bili(
     let path = match stream_download(&wreq_client, &pic, &name, &headers).await {
         Ok(path) => path,
         Err(e) => {
-            log::error!("[{bvid}] 封面下载失败: {e}");
+            error!("[{bvid}] 封面下载失败: {e}");
             return Ok(());
         }
     };
 
     let Ok(uploaded) = client.upload_file(path).await else {
-        log::error!("[{bvid}] 上传封面失败");
+        error!("[{bvid}] 上传封面失败");
         return Ok(());
     };
 
@@ -615,7 +616,7 @@ where
 {
     let cache_dir = Path::new("cache");
     if let Err(e) = fs::create_dir_all(cache_dir).await {
-        log::error!("缓存文件夹创建失败: {e:?}");
+        error!("缓存文件夹创建失败: {e:?}");
     }
 
     let path = cache_dir.join(name);
@@ -634,7 +635,7 @@ where
         .await?;
 
     if !status.success() {
-        log::error!("ffmpeg exited with status: {:?}", status.code());
+        error!("ffmpeg exited with status: {:?}", status.code());
         return Err(anyhow::anyhow!("convert failed"));
     }
 

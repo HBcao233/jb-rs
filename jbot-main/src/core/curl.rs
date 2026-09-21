@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use futures_util::StreamExt;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
+use tracing::{error, info, warn};
 use wreq::header::HeaderValue;
 use wreq_util::Emulation::Chrome137;
 
@@ -33,7 +34,7 @@ where
 {
     let cache_dir = Path::new("cache");
     if let Err(e) = fs::create_dir_all(cache_dir).await {
-        log::error!("缓存文件夹创建失败: {e:?}");
+        error!("缓存文件夹创建失败: {e:?}");
     }
 
     // 只有下载完成的文件才会用最终文件名，存在即代表完整
@@ -66,7 +67,7 @@ where
         let status = response.status().as_u16();
         let (range_start, range_total) =
             parse_content_range(response.headers().get("content-range"));
-        log::info!("downloaded: {}, range_total: {:?}", downloaded, range_total);
+        info!("downloaded: {}, range_total: {:?}", downloaded, range_total);
         match status {
             // 206：服务端从我们要求的位置返回了剩余部分，可以续传
             206 if range_start.map_or(true, |start| start == downloaded) => {
@@ -81,7 +82,7 @@ where
             }
             // 其他 206/416（起始位置或长度对不上）说明本地分片已不可信，删掉重来
             206 | 416 => {
-                log::warn!("{name} 的缓存分片无法续传（HTTP {status}），将重新下载");
+                warn!("{name} 的缓存分片无法续传（HTTP {status}），将重新下载");
                 fs::remove_file(&part_path).await?;
                 downloaded = 0;
             }

@@ -2,6 +2,7 @@ use std::path::Path;
 
 use serde_json::Value;
 use tokio::fs;
+use tracing::{error, info};
 use wreq::{Client, StatusCode};
 
 use super::abogus::{abogus, websign};
@@ -16,12 +17,12 @@ const AWEME_HOST: &str = "https://www-hj.douyin.com/aweme/v1/web/aweme/detail/";
 pub async fn get_aweme_detail(client: &Client, aid: &str) -> Result<AwemeDetail, GetAwemeError> {
     let cache_dir = Path::new("cache/douyin");
     if let Err(e) = fs::create_dir_all(cache_dir).await {
-        log::error!("缓存文件夹创建失败: {e:?}");
+        error!("缓存文件夹创建失败: {e:?}");
     }
 
     let cache_file = cache_dir.join(&format!("{aid}.json"));
     let res: Value = if let Ok(text) = fs::read_to_string(&cache_file).await {
-        log::info!("使用缓存: {}", cache_file.display());
+        info!("使用缓存: {}", cache_file.display());
         serde_json::from_str(&text)?
     } else {
         let mut query = vec![
@@ -81,7 +82,7 @@ pub async fn get_aweme_detail(client: &Client, aid: &str) -> Result<AwemeDetail,
             .await?;
         let status = response.status();
         if status != StatusCode::OK {
-            log::info!("{:?}", response.text().await);
+            info!("{:?}", response.text().await);
             return Err(GetAwemeError::Status(status.as_u16()));
         }
 
@@ -89,9 +90,9 @@ pub async fn get_aweme_detail(client: &Client, aid: &str) -> Result<AwemeDetail,
 
         let pretty = serde_json::to_string_pretty(&res)?;
         if let Err(e) = fs::write(&cache_file, &pretty).await {
-            log::error!("缓存json文件失败: {e:?}");
+            error!("缓存json文件失败: {e:?}");
         } else {
-            log::info!("写入缓存: {}", cache_file.display());
+            info!("写入缓存: {}", cache_file.display());
         }
         res
     };

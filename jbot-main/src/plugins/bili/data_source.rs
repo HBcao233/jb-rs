@@ -4,6 +4,7 @@ use std::sync::OnceLock;
 use jiff::Timestamp;
 use serde_json::Value;
 use tokio::fs;
+use tracing::{error, info};
 use wreq::Client;
 use wreq::StatusCode;
 
@@ -74,12 +75,12 @@ pub async fn get_bili(
 ) -> Result<BiliInfo, GetBiliError> {
     let cache_dir = Path::new("cache/bilis");
     if let Err(e) = fs::create_dir_all(cache_dir).await {
-        log::error!("缓存文件夹创建失败: {e:?}");
+        error!("缓存文件夹创建失败: {e:?}");
     }
 
     let cache_file = cache_dir.join(&format!("{bvid}.json"));
     let res: BiliResult = if let Ok(text) = fs::read_to_string(&cache_file).await {
-        log::info!("使用缓存: {}", cache_file.display());
+        info!("使用缓存: {}", cache_file.display());
         serde_json::from_str(&text)?
     } else {
         let mixin_key = get_mixin_key(&client).await?;
@@ -137,9 +138,9 @@ pub async fn get_bili(
                 } else {
                     let pretty = serde_json::to_string_pretty(&res)?;
                     if let Err(e) = fs::write(&cache_file, &pretty).await {
-                        log::error!("缓存json文件失败: {e:?}");
+                        error!("缓存json文件失败: {e:?}");
                     } else {
-                        log::info!("写入缓存: {}", cache_file.display());
+                        info!("写入缓存: {}", cache_file.display());
                     }
                 }
             }
@@ -151,7 +152,7 @@ pub async fn get_bili(
 
     match res.code {
         -404 | 62002 | 62004 => {
-            log::info!("{}", res.message);
+            info!("{}", res.message);
             return Err(GetBiliError::NotFound);
         }
         0 | -352 => {}
@@ -160,7 +161,7 @@ pub async fn get_bili(
         }
         _ => {
             let msg = format!("未知状态码: {} {}", res.code, res.message);
-            log::error!("{msg}");
+            error!("{msg}");
             return Err(GetBiliError::Api(msg));
         }
     }
@@ -245,7 +246,7 @@ pub async fn get_playurl(
 ) -> Result<PlayurlInfo, GetPlayurlError> {
     let cache_dir = Path::new("cache/bilis");
     if let Err(e) = fs::create_dir_all(cache_dir).await {
-        log::error!("缓存文件夹创建失败: {e:?}");
+        error!("缓存文件夹创建失败: {e:?}");
     }
 
     let cache_file = cache_dir.join(&format!("{bvid}_playurl.json"));
@@ -317,9 +318,9 @@ pub async fn get_playurl(
 
     let pretty = serde_json::to_string_pretty(&res)?;
     if let Err(e) = fs::write(&cache_file, &pretty).await {
-        log::error!("缓存json文件失败: {e:?}");
+        error!("缓存json文件失败: {e:?}");
     } else {
-        log::info!("写入缓存: {}", cache_file.display());
+        info!("写入缓存: {}", cache_file.display());
     }
     let res: PlayurlResult = serde_json::from_value(res)?;
 

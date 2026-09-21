@@ -13,8 +13,10 @@ use grammers_client::sender::{SenderPool, UpdatesConfiguration};
 use grammers_session::storages::SqliteSession;
 use tokio::runtime;
 use tokio::task::JoinSet;
-use tokio::time::{interval, MissedTickBehavior};
+use tokio::time::{MissedTickBehavior, interval};
+use tracing::{error, info};
 
+#[cfg(feature = "core_curl")]
 pub use crate::core::curl;
 pub use crate::core::ffmpeg::{self, FFmpeg};
 pub use crate::core::progress;
@@ -36,7 +38,7 @@ const SESSION_FILE: &str = "jbot.session";
 async fn async_main() {
     for setup in core::update::SETUPS {
         if let Err(e) = setup() {
-            log::error!("初始化失败: {e}");
+            error!("初始化失败: {e}");
             return;
         }
     }
@@ -59,12 +61,12 @@ async fn async_main() {
     let pool_task = tokio::spawn(runner.run());
 
     if !client.is_authorized().await.unwrap() {
-        log::info!("Signing in...");
+        info!("Signing in...");
         client
             .bot_sign_in(&token, &api_hash)
             .await
             .expect("Sign in failed.");
-        log::info!("Signed in!");
+        info!("Signed in!");
     }
 
     let bg_client = client.clone();
@@ -83,7 +85,7 @@ async fn async_main() {
         }
     });
 
-    log::info!("Waiting for messages...");
+    info!("Waiting for messages...");
 
     let mut handler_tasks = JoinSet::new();
     let mut updates = client
@@ -111,18 +113,18 @@ async fn async_main() {
                         handler_tasks.spawn(core::update::handle_update(handle, update, Arc::clone(&session)));
                     }
                     Err(e) => {
-                        log::error!("获取更新失败: {e}");
+                        error!("获取更新失败: {e}");
                     }
                 }
             }
             Some(res) = handler_tasks.join_next(), if !handler_tasks.is_empty() => {
                 if let Err(e) = res {
-                    log::error!("handler task panicked: {e}");
+                    error!("handler task panicked: {e}");
                 }
             }
             _ = sync_timer.tick() => {
                 if dirty && (handler_tasks.is_empty() || last_save_time.elapsed() > MAX_SYNC_INTERVAL) {
-                    log::info!("Saving session periodically...");
+                    info!("Saving session periodically...");
                     match updates
                         .sync_update_state()
                         .await {
@@ -131,7 +133,7 @@ async fn async_main() {
                             last_save_time = Instant::now();
                         }
                         Err(e) => {
-                            log::error!("Sync update state failed: {e}");
+                            error!("Sync update state failed: {e}");
                         }
                     }
                 }
@@ -139,9 +141,9 @@ async fn async_main() {
         }
     }
 
-    log::info!("Saving session file...");
+    info!("Saving session file...");
     if let Err(e) = updates.sync_update_state().await {
-        log::error!("Sync update state failed: {e}")
+        error!("Sync update state failed: {e}")
     }
 
     // Pool's `run()` won't finish until all handles are dropped or quit is called.
@@ -154,12 +156,12 @@ async fn async_main() {
     // error from any pending method calls (RPC invocations).
     //
     // You can try this graceful shutdown by sending a message saying "slow" and then pressing Ctrl+C.
-    log::info!("Gracefully closing connection to notify all pending handlers...");
+    info!("Gracefully closing connection to notify all pending handlers...");
     handle.quit();
     let _ = pool_task.await;
 
     // Give a chance to all on-going handlers to finish.
-    // log::info!("Waiting for any slow handlers to finish...");
+    // info!("Waiting for any slow handlers to finish...");
     // while let Some(_) = handler_tasks.join_next().await {}
 }
 

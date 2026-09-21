@@ -9,6 +9,7 @@ use grammers_client::message::{Button, InputMessage, Message, ReplyMarkup};
 use grammers_client::update::{CallbackQuery, Update};
 use grammers_session::storages::SqliteSession;
 use grammers_session::types::{PeerKind, PeerRef};
+use tracing::{error, info};
 
 #[crate::on_grouped_messages]
 async fn messages_handler(client: Client, messages: Vec<Arc<Message>>) {
@@ -97,7 +98,7 @@ async fn send_merge_button(client: Client, peer: PeerRef, messages: &[Arc<Messag
         )
         .await
     {
-        log::error!("合并button发送失败: {e}");
+        error!("合并button发送失败: {e}");
     }
 }
 
@@ -124,14 +125,14 @@ impl FinishMergeButton {
 
 async fn handle_add_merge(callback: CallbackQuery, message_ids: Vec<i32>) {
     let peer_id = callback.peer_id();
-    log::info!("{:?}", &message_ids);
+    info!("{:?}", &message_ids);
 
     let count = message_ids.len();
     let text = format!("已添加 {count} 条媒体");
     if let Err(e) = database::insert_session(callback.peer_id(), message_ids).await {
-        log::error!("添加合并失败 {e}");
+        error!("添加合并失败 {e}");
         if let Err(e) = callback.answer().alert("添加合并媒体失败").send().await {
-            log::error!("回复失败按钮回调失败: {e}");
+            error!("回复失败按钮回调失败: {e}");
         }
     } else {
         let reply_markup = ReplyMarkup::from_buttons(&[vec![FinishMergeButton::new().raw]]);
@@ -142,13 +143,13 @@ async fn handle_add_merge(callback: CallbackQuery, message_ids: Vec<i32>) {
         {
             Ok(message) => {
                 if let Err(e) = message.pin().await {
-                    log::error!("置顶消息失败: {e}");
+                    error!("置顶消息失败: {e}");
                 }
                 if let Err(e) = database::insert_pinned(peer_id, message.id()).await {
-                    log::error!("记录置顶消息失败: {e}");
+                    error!("记录置顶消息失败: {e}");
                 }
             }
-            Err(e) => log::error!("回复失败按钮回调失败: {e}"),
+            Err(e) => error!("回复失败按钮回调失败: {e}"),
         }
     }
 }
@@ -182,7 +183,7 @@ async fn handle_finish_merge(callback: CallbackQuery, client: Client) {
                             cache.insert(m.id(), m);
                         }
                     }
-                    Err(e) => log::error!("获取消息失败: {e}"),
+                    Err(e) => error!("获取消息失败: {e}"),
                 }
             }
 
@@ -201,33 +202,33 @@ async fn handle_finish_merge(callback: CallbackQuery, client: Client) {
                     Ok(_) => {
                         success_count += n;
                     }
-                    Err(e) => log::error!("发送合并媒体失败: {e}"),
+                    Err(e) => error!("发送合并媒体失败: {e}"),
                 }
             }
 
             let text = format!("已成功合并 {} / {} 条媒体", success_count, want);
             if let Err(e) = callback.answer().respond(text).await {
-                log::error!("回复失败按钮回调失败: {e}");
+                error!("回复失败按钮回调失败: {e}");
             }
         }
         Err(e) => {
-            log::error!("获取合并记录失败: {e}");
+            error!("获取合并记录失败: {e}");
         }
     }
 
     match database::get_pinned(peer_id).await {
         Ok(pinned) => {
             if let Err(e) = client.delete_messages(peer_ref, &pinned).await {
-                log::error!("删除消息失败: {e}");
+                error!("删除消息失败: {e}");
             }
         }
         Err(e) => {
-            log::error!("获取置顶消息失败: {e}");
+            error!("获取置顶消息失败: {e}");
         }
     }
 
     if let Err(e) = database::finish_session(peer_id).await {
-        log::error!("完成合并失败: {e}")
+        error!("完成合并失败: {e}")
     }
 }
 

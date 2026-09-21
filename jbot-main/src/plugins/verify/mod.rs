@@ -13,6 +13,7 @@ use grammers_tl_types as tl;
 use jiff::{SignedDuration, Timestamp};
 use rand::prelude::IteratorRandom;
 use rand::{random_range, rng};
+use tracing::{error, info, warn};
 
 use crate::plugins::group_config::{CONFIGS, Config};
 
@@ -82,10 +83,10 @@ async fn handler(client: Client, update: Update, session: Arc<SqliteSession>) {
                     .await
                 {
                     Ok(_) => {
-                        log::info!("封禁 guest 触发者 {guestchat_via_from_id} 成功");
+                        info!("封禁 guest 触发者 {guestchat_via_from_id} 成功");
                     }
                     Err(e) => {
-                        log::warn!("封禁 guest 触发者 {guestchat_via_from_id} 失败: {e}");
+                        warn!("封禁 guest 触发者 {guestchat_via_from_id} 失败: {e}");
                     }
                 }
 
@@ -105,10 +106,10 @@ async fn handler(client: Client, update: Update, session: Arc<SqliteSession>) {
                     .await
                 {
                     Ok(_) => {
-                        log::info!("封禁 guestbot {sender_id} 成功");
+                        info!("封禁 guestbot {sender_id} 成功");
                     }
                     Err(e) => {
-                        log::warn!("封禁 guestbot {sender_id} 失败: {e}");
+                        warn!("封禁 guestbot {sender_id} 失败: {e}");
                     }
                 }
 
@@ -174,7 +175,7 @@ async fn send_verify(client: Client, peer_ref: PeerRef, user_ref: PeerRef) {
     let status = match get_status(peer_id, user_id).await {
         Ok(s) => s,
         Err(e) => {
-            log::error!("获取验证状态失败: {e}");
+            error!("获取验证状态失败: {e}");
             return;
         }
     };
@@ -184,7 +185,7 @@ async fn send_verify(client: Client, peer_ref: PeerRef, user_ref: PeerRef) {
         }
         VerifyStatus::Verifying { message_id, .. } => {
             if let Err(e) = client.delete_messages(peer_ref, &[message_id]).await {
-                log::error!("删除消息失败: {e}");
+                error!("删除消息失败: {e}");
             }
         }
         VerifyStatus::Null | VerifyStatus::Banned => {
@@ -201,10 +202,10 @@ async fn send_verify(client: Client, peer_ref: PeerRef, user_ref: PeerRef) {
                 .await
             {
                 Ok(_) => {
-                    log::info!("禁言入群者 {user_id} 成功");
+                    info!("禁言入群者 {user_id} 成功");
                 }
                 Err(e) => {
-                    log::error!("禁言入群者 {user_id} 失败: {e}");
+                    error!("禁言入群者 {user_id} 失败: {e}");
                     return;
                 }
             }
@@ -261,12 +262,12 @@ async fn send_verify(client: Client, peer_ref: PeerRef, user_ref: PeerRef) {
     {
         Ok(m) => m,
         Err(e) => {
-            log::error!("发送消息失败: {e}");
+            error!("发送消息失败: {e}");
             return;
         }
     };
 
-    log::info!("solution: {solution}");
+    info!("solution: {solution}");
     if let Err(e) = set_status(
         peer_id,
         user_id,
@@ -278,7 +279,7 @@ async fn send_verify(client: Client, peer_ref: PeerRef, user_ref: PeerRef) {
     )
     .await
     {
-        log::error!("设置验证状态失败: {e}");
+        error!("设置验证状态失败: {e}");
     }
 }
 
@@ -347,12 +348,12 @@ async fn handle_verify(
     let user_id = callback.sender_id();
     if user_id != verify_user_id {
         if let Err(e) = callback.answer().alert("这是别人的入群验证啦").send().await {
-            log::error!("alert失败: {e}");
+            error!("alert失败: {e}");
         }
         return;
     }
 
-    log::info!("handle_verify: {index}");
+    info!("handle_verify: {index}");
     let peer_id = callback.peer_id();
     let peer_ref = callback
         .peer_ref()
@@ -372,18 +373,18 @@ async fn handle_verify(
     let status = match get_status(peer_id, user_id).await {
         Ok(s) => s,
         Err(e) => {
-            log::error!("获取验证状态失败: {e}");
+            error!("获取验证状态失败: {e}");
             return;
         }
     };
-    log::info!("{status:?}");
+    info!("{status:?}");
     match status {
         VerifyStatus::Null => {}
         VerifyStatus::Verifying { date, solution, .. } => {
             let now = Timestamp::now();
             if now.duration_since(date) < VERIFY_LIMIT && solution == index {
                 if let Err(e) = set_status(peer_id, user_id, VerifyStatus::Verified).await {
-                    log::error!("设置验证状态失败: {e}");
+                    error!("设置验证状态失败: {e}");
                 }
 
                 match client
@@ -399,15 +400,15 @@ async fn handle_verify(
                     .await
                 {
                     Ok(_) => {
-                        log::info!("解除验证通过者禁言 {user_id} 成功");
+                        info!("解除验证通过者禁言 {user_id} 成功");
                     }
                     Err(e) => {
-                        log::error!("解除验证通过者禁言 {user_id} 失败: {e}");
+                        error!("解除验证通过者禁言 {user_id} 失败: {e}");
                     }
                 }
             } else {
                 if let Err(e) = set_status(peer_id, user_id, VerifyStatus::Banned).await {
-                    log::error!("设置验证状态失败: {e}");
+                    error!("设置验证状态失败: {e}");
                 }
 
                 match client
@@ -416,10 +417,10 @@ async fn handle_verify(
                     .await
                 {
                     Ok(_) => {
-                        log::info!("封禁验证失败者 {user_id} 成功");
+                        info!("封禁验证失败者 {user_id} 成功");
                     }
                     Err(e) => {
-                        log::warn!("封禁验证失败者 {user_id} 失败: {e}");
+                        warn!("封禁验证失败者 {user_id} 失败: {e}");
                     }
                 }
             }
@@ -440,7 +441,7 @@ async fn on_interval(client: Client, session: Arc<SqliteSession>) {
     let all_verifying = match database::get_all_verifying().await {
         Ok(x) => x,
         Err(e) => {
-            log::error!("获取正在验证列表失败: {e}");
+            error!("获取正在验证列表失败: {e}");
             return;
         }
     };
@@ -467,7 +468,7 @@ async fn on_interval(client: Client, session: Arc<SqliteSession>) {
             let _ = client.delete_messages(peer_ref, &[message_id]).await;
 
             if let Err(e) = set_status(peer_id, user_id, VerifyStatus::Banned).await {
-                log::error!("设置验证状态失败: {e}");
+                error!("设置验证状态失败: {e}");
             }
 
             match client
@@ -476,10 +477,10 @@ async fn on_interval(client: Client, session: Arc<SqliteSession>) {
                 .await
             {
                 Ok(_) => {
-                    log::info!("封禁验证超时者 {user_id} 成功");
+                    info!("封禁验证超时者 {user_id} 成功");
                 }
                 Err(e) => {
-                    log::warn!("封禁验证超时者 {user_id} 失败: {e}");
+                    warn!("封禁验证超时者 {user_id} 失败: {e}");
                 }
             }
         }
@@ -527,13 +528,13 @@ async fn handle_admin_verify(client: Client, callback: CallbackQuery, user_id: P
     let permissions = match client.get_permissions(peer_ref, admin_ref).await {
         Ok(x) => x,
         Err(e) => {
-            log::error!("获取用户权限失败: {e}");
+            error!("获取用户权限失败: {e}");
             return;
         }
     };
     if !permissions.is_admin() {
         if let Err(e) = callback.answer().alert("没有管理员权限").send().await {
-            log::error!("alert失败: {e}");
+            error!("alert失败: {e}");
         }
         return;
     }
@@ -544,7 +545,7 @@ async fn handle_admin_verify(client: Client, callback: CallbackQuery, user_id: P
     };
 
     if let Err(e) = set_status(peer_id, user_id, VerifyStatus::Verified).await {
-        log::error!("设置验证状态失败: {e}");
+        error!("设置验证状态失败: {e}");
         let _ = callback
             .answer()
             .alert("放行失败: 设置状态错误")
@@ -571,11 +572,11 @@ async fn handle_admin_verify(client: Client, callback: CallbackQuery, user_id: P
         .await
     {
         Ok(_) => {
-            log::info!("解除验证通过者禁言 {user_id} 成功");
+            info!("解除验证通过者禁言 {user_id} 成功");
             true
         }
         Err(e) => {
-            log::error!("解除验证通过者禁言 {user_id} 失败: {e}");
+            error!("解除验证通过者禁言 {user_id} 失败: {e}");
             false
         }
     };
@@ -631,13 +632,13 @@ async fn handle_admin_kick(client: Client, callback: CallbackQuery, user_id: Pee
     let permissions = match client.get_permissions(peer_ref, admin_ref).await {
         Ok(x) => x,
         Err(e) => {
-            log::error!("获取用户权限失败: {e}");
+            error!("获取用户权限失败: {e}");
             return;
         }
     };
     if !permissions.is_admin() {
         if let Err(e) = callback.answer().alert("没有管理员权限").send().await {
-            log::error!("alert失败: {e}");
+            error!("alert失败: {e}");
         }
         return;
     }
@@ -648,7 +649,7 @@ async fn handle_admin_kick(client: Client, callback: CallbackQuery, user_id: Pee
     };
 
     if let Err(e) = set_status(peer_id, user_id, VerifyStatus::Banned).await {
-        log::error!("设置验证状态失败: {e}");
+        error!("设置验证状态失败: {e}");
         let _ = callback
             .answer()
             .alert("封禁失败: 设置状态错误")
@@ -668,11 +669,11 @@ async fn handle_admin_kick(client: Client, callback: CallbackQuery, user_id: Pee
         .await
     {
         Ok(_) => {
-            log::info!("封禁验证失败者 {user_id} 成功");
+            info!("封禁验证失败者 {user_id} 成功");
             true
         }
         Err(e) => {
-            log::warn!("封禁验证失败者 {user_id} 失败: {e}");
+            warn!("封禁验证失败者 {user_id} 失败: {e}");
             false
         }
     };

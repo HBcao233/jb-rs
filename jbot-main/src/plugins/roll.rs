@@ -4,6 +4,7 @@ use grammers_client::Client;
 use grammers_client::message::{InputMessage, Message};
 use grammers_session::types::PeerKind;
 use rand::random_range;
+use tracing::error;
 
 const HELP: &str = "用法: /roll [最小点数 最大点数]
 最小点数最小值: -32768
@@ -33,7 +34,7 @@ async fn handler(_client: Client, message: Arc<Message>) {
         if !arr.is_empty() {
             if arr.len() < 2 {
                 if let Err(e) = message.reply(InputMessage::new().text(HELP)).await {
-                    log::error!("消息发送失败: {e}")
+                    error!("消息发送失败: {e}")
                 }
                 return;
             }
@@ -44,7 +45,7 @@ async fn handler(_client: Client, message: Arc<Message>) {
                 }
                 Err(_) => {
                     if let Err(e) = message.reply(InputMessage::new().text(HELP)).await {
-                        log::error!("消息发送失败: {e}")
+                        error!("消息发送失败: {e}")
                     }
                     return;
                 }
@@ -55,7 +56,7 @@ async fn handler(_client: Client, message: Arc<Message>) {
                 }
                 Err(_) => {
                     if let Err(e) = message.reply(InputMessage::new().text(HELP)).await {
-                        log::error!("消息发送失败: {e}")
+                        error!("消息发送失败: {e}")
                     }
                     return;
                 }
@@ -69,7 +70,7 @@ async fn handler(_client: Client, message: Arc<Message>) {
         let res: i16 = random_range(min..=max);
         let text = format!("🎲 骰到了 {res} ({min} ~ {max})");
         if let Err(e) = message.reply(text).await {
-            log::error!("消息发送失败: {e}")
+            error!("消息发送失败: {e}")
         }
     }
 }
