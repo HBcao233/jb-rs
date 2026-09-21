@@ -231,6 +231,8 @@ async fn send_verify(client: Client, peer_ref: PeerRef, user_ref: PeerRef) {
         let solution_emoji = EMOJIS[solution as usize];
         (emoji_indexs, solution, solution_emoji)
     };
+    info!("solution: {solution}, emoji_indexs: {emoji_indexs:?}");
+
     let mut buttons: Vec<Vec<Button>> = emoji_indexs
         .chunks(3)
         .map(|indexs| {
@@ -267,7 +269,6 @@ async fn send_verify(client: Client, peer_ref: PeerRef, user_ref: PeerRef) {
         }
     };
 
-    info!("solution: {solution}");
     if let Err(e) = set_status(
         peer_id,
         user_id,
