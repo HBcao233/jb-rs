@@ -13,7 +13,7 @@ use grammers_client::sender::{SenderPool, UpdatesConfiguration};
 use grammers_session::storages::SqliteSession;
 use tokio::runtime;
 use tokio::task::JoinSet;
-use tokio::time::interval;
+use tokio::time::{interval, MissedTickBehavior};
 
 pub use crate::core::curl;
 pub use crate::core::ffmpeg::{self, FFmpeg};
@@ -70,7 +70,11 @@ async fn async_main() {
     let bg_client = client.clone();
     let bg_session = Arc::clone(&session);
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(INTERVAL_TIME);
+        let mut interval = interval(INTERVAL_TIME);
+        // 忽略错过的 tick
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        // 跳过第一次
+        interval.tick().await;
         loop {
             interval.tick().await;
             for handler in core::update::INTERVAL_HANDLERS {

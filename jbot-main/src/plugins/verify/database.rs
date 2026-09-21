@@ -1,7 +1,10 @@
+use std::sync::Arc;
+
 use grammers_session::types::PeerId;
 use jiff::Timestamp;
 use libsql::{Builder, Connection, Error, named_params, params};
 use tokio::fs;
+use tokio::sync::OnceCell;
 
 #[derive(Debug)]
 pub enum VerifyStatus {
@@ -206,8 +209,18 @@ pub async fn set_status(
     Ok(())
 }
 
+static GET_VERIFYING_CONNECTION: OnceCell<Arc<Database>> = OnceCell::const_new();
+
+async fn get_verifying_connection() -> libsql::Result<Arc<Database>> {
+    GET_VERIFYING_CONNECTION
+        .get_or_try_init(|| async { Ok(Arc::new(Database::open().await?)) })
+        .await
+        .map(|db| Arc::clone(&db))
+}
+
 pub async fn get_all_verifying() -> libsql::Result<Vec<(PeerId, PeerId, VerifyStatus)>> {
-    let db = Database::open().await?;
+    // 复用同一条数据库连接
+    let db = get_verifying_connection().await?;
 
     let map_row = |row: libsql::Row| {
         let peer_id: i64 = row.get(0)?;

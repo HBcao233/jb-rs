@@ -434,6 +434,7 @@ async fn handle_verify(
     }
 }
 
+/// 定时检查是否有验证超时的成员
 #[crate::on_interval]
 async fn on_interval(client: Client, session: Arc<SqliteSession>) {
     let all_verifying = match database::get_all_verifying().await {
@@ -485,6 +486,7 @@ async fn on_interval(client: Client, session: Arc<SqliteSession>) {
     }
 }
 
+/// 管理员放行按钮
 pub struct AdminVerifyButton;
 
 impl AdminVerifyButton {
@@ -588,6 +590,7 @@ async fn handle_admin_verify(client: Client, callback: CallbackQuery, user_id: P
     }
 }
 
+/// 管理员踢出按钮
 pub struct AdminKickButton;
 
 impl AdminKickButton {
