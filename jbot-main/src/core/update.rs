@@ -35,7 +35,7 @@ pub(crate) async fn handle_update(client: Client, update: Update, session: Arc<S
     match update {
         Update::NewMessage(message) => {
             let peer_id = message.peer_id();
-            if !message.outgoing() && message.action().is_none() {
+            if !message.outgoing() && message.action().is_none() && message.media().is_none() {
                 if let Some(sender_id) = message.sender_id() {
                     let sender_info = crate::utils::get_peer_info(&sender_id, message.sender());
                     let text = crate::utils::safe_truncate(message.text(), 30);
