@@ -1,4 +1,5 @@
 /// FNV-1a hash
+#[allow(dead_code)]
 pub const fn const_hash(s: &str) -> [u8; 4] {
     let mut hash: u32 = 0x811c9dc5;
     let bytes = s.as_bytes();

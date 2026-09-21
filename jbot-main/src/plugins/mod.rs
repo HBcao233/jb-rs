@@ -1,14 +1,15 @@
-#[cfg(not(debug_assertions))]
+#[cfg(feature = "bili")]
 mod bili;
-#[cfg(not(debug_assertions))]
+#[cfg(feature = "douyin")]
 mod douyin;
-#[cfg(not(debug_assertions))]
+#[cfg(feature = "group_config")]
 pub mod group_config;
 mod help;
-#[cfg(not(debug_assertions))]
+#[cfg(feature = "merge")]
 mod merge;
-#[cfg(not(debug_assertions))]
+#[cfg(feature = "roll")]
 mod roll;
+#[cfg(feature = "twitter")]
 mod twitter;
-#[cfg(not(debug_assertions))]
+#[cfg(feature = "verify")]
 mod verify;

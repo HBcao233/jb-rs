@@ -10,6 +10,17 @@ keywords = ["telegram", "bot"]
 categories = []
 edition = "2024"
 
+[features]
+roll = []
+merge = []
+group_config = []
+
+bili = []
+douyin = []
+twitter = []
+
+verify = ["group_config"]
+
 [dependencies]
 jbot-macro = { path = "../jbot-macro" }
 

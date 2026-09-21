@@ -2,8 +2,12 @@ fmt:
 	@echo 'cargo +nightly fmt'
 	@script -q -c 'cargo +nightly fmt' /dev/null
 
-dev:
-	cargo build
+build:
+	cargo build --all-features
+
+b: build
 
 release:
-	cargo build --release
+	cargo build --release --all-features
+
+r: release
