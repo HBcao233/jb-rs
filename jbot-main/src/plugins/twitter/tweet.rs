@@ -181,7 +181,7 @@ pub struct OriginalInfo {
 
 #[derive(Debug, Deserialize)]
 pub struct VideoInfo {
-    pub duration_millis: f64,
+    pub duration_millis: Option<u32>,
     pub variants: Vec<VideoVariant>,
 }
 

@@ -16,7 +16,7 @@ use tokio::task::JoinSet;
 use tokio::time::interval;
 
 pub use crate::core::curl;
-pub use crate::core::ffmpeg::FFmpeg;
+pub use crate::core::ffmpeg::{self, FFmpeg};
 pub use crate::core::progress;
 pub use crate::jbot_macro::{
     on_grouped_messages, on_interval, on_new_message, on_setup, on_update,

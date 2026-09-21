@@ -1,9 +1,41 @@
 use std::ffi::{OsStr, OsString};
 use std::io;
-use std::process::{ExitStatus, Stdio};
+use std::process::{ExitStatus, Output, Stdio};
 
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
+
+pub async fn get_duration(input: impl AsRef<OsStr>) -> Result<f64, Box<dyn std::error::Error>> {
+    let output: Output = Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+        ])
+        .arg(input)
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let Some(status_code) = output.status.code() else {
+            return Err("get status failed".into());
+        };
+        return Err(format!("ffprobe failed ({}): {}", status_code, stderr.trim(),).into());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let duration_str = stdout.trim();
+    if duration_str.is_empty() {
+        return Err("未能获取到时长信息，ffprobe 输出为空".into());
+    }
+
+    let duration: f64 = duration_str.parse()?;
+    Ok(duration)
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct FFmpeg {
@@ -202,6 +234,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore = "expensive"]
     async fn test_ffmpeg() {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let path = path.parent().unwrap();

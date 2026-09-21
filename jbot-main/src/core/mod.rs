@@ -1,6 +1,6 @@
 pub(crate) mod button;
 pub mod curl;
-pub(crate) mod ffmpeg;
+pub mod ffmpeg;
 pub(crate) mod grouped;
 pub(crate) mod log;
 pub mod progress;

@@ -149,7 +149,7 @@ async fn send_twitter(
                 mid.edit(format!("[{tid}] 媒体下载中 {} / {}...", index + 1, count))
                     .await?;
 
-                let (ext, url) = match media_type {
+                let (ext, url, duration_millis) = match media_type {
                     "photo" => {
                         let url = &media.media_url_https;
                         let url = if url.contains('?') {
@@ -157,27 +157,37 @@ async fn send_twitter(
                         } else {
                             format!("{}?name=orig", url)
                         };
-                        ("jpg", url)
+                        ("jpg", url, None)
                     }
-                    "video" => {
-                        let video = media
-                            .video_info
-                            .as_ref()
-                            .unwrap()
-                            .variants
-                            .iter()
-                            .max_by_key(|v| {
-                                if v.content_type == "video/mp4" {
-                                    v.bitrate.unwrap_or(0)
-                                } else {
-                                    0
-                                }
-                            });
-                        ("mp4", video.unwrap().url.clone())
+                    "video" | "animated_gif" => {
+                        let (video, duration_millis) = match &media.video_info {
+                            Some(video_info) => (
+                                video_info
+                                    .variants
+                                    .iter()
+                                    .max_by_key(|v| {
+                                        if v.content_type == "video/mp4" {
+                                            v.bitrate.unwrap_or(0)
+                                        } else {
+                                            0
+                                        }
+                                    })
+                                    .unwrap(),
+                                video_info.duration_millis,
+                            ),
+                            None => {
+                                log::error!("type={} 但 video_info 为空", media_type);
+                                let _ = mid.edit("video_info 为空").await;
+                                return Ok(());
+                            }
+                        };
+                        ("mp4", video.url.clone(), duration_millis)
                     }
                     _ => {
-                        log::warn!("不支持的媒体类型: {}", media_type);
-                        continue;
+                        let text = format!("暂不支持的媒体类型: {}", media_type);
+                        log::error!("{}", text);
+                        let _ = mid.edit(text).await;
+                        return Ok(());
                     }
                 };
                 let name = format!("{key}.{ext}");
@@ -194,7 +204,7 @@ async fn send_twitter(
 
                 mid.edit(format!("[{tid}] 媒体上传中 {} / {}...", index + 1, count))
                     .await?;
-                let Ok(uploaded) = client.upload_file(path).await else {
+                let Ok(uploaded) = client.upload_file(&path).await else {
                     mid.edit(format!("[{tid}] 媒体 {} 上传失败", index + 1))
                         .await?;
                     return Ok(());
@@ -202,7 +212,7 @@ async fn send_twitter(
 
                 match media_type {
                     "photo" => InputMedia::new().mime_type("image/jpeg").photo(uploaded),
-                    "video" => {
+                    "video" | "animated_gif" => {
                         let thumb_url = &media.media_url_https;
                         let thumb_url = if thumb_url.contains('?') {
                             format!("{}&name=orig", thumb_url)
@@ -227,6 +237,17 @@ async fn send_twitter(
                                 }
                             };
 
+                        let duration = if let Some(millis) = duration_millis {
+                            millis as f64 / 1000.0
+                        } else {
+                            match crate::ffmpeg::get_duration(&path).await {
+                                Ok(d) => d,
+                                Err(e) => {
+                                    log::warn!("获取视频 ({}) 时长失败: {e}", path.display());
+                                    0.0
+                                }
+                            }
+                        };
                         let m = tl::types::InputMediaUploadedDocument {
                             nosound_video: true,
                             force_file: false,
@@ -240,8 +261,7 @@ async fn send_twitter(
                                     round_message: false,
                                     supports_streaming: true,
                                     nosound: false,
-                                    duration: media.video_info.as_ref().unwrap().duration_millis
-                                        / 1000.0,
+                                    duration,
                                     w: media.original_info.width,
                                     h: media.original_info.height,
                                     preload_prefix_size: None,
