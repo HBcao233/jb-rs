@@ -1,12 +1,15 @@
 use serde::Deserialize;
 
+// 图文作品
+// pub const IMAGES_AWEME_TYPE: i32 = 68;
+
 #[derive(Debug, Deserialize)]
 pub struct AwemeDetail {
     pub author: Author,
     pub aweme_id: String,
     pub item_title: String,
     pub desc: String,
-    pub aweme_type: i32,
+    // pub aweme_type: i32,
     pub video: Option<Video>,
     pub images: Option<Vec<Image>>,
 }

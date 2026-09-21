@@ -136,15 +136,17 @@ async fn send_douyin(
     };
     // let aid = detail.aweme_id.clone();
     let msg = parse_msg(&detail);
-    let aweme_type = detail.aweme_type;
-    log::info!("aweme_type: {aweme_type}");
+    // let aweme_type = detail.aweme_type;
+    // log::info!("aweme_type: {aweme_type}");
 
     let down_client = crate::curl::get_client()
         .redirect(Policy::limited(5))
         .build()?;
     let headers = vec![("referer", "https://www.douyin.com/".to_string())];
 
-    if let Some(video) = detail.video {
+    if detail.images.is_none()
+        && let Some(video) = detail.video
+    {
         let thumb_url = video.origin_cover.url_list.last().unwrap();
         let thumb_name = format!("{aid}_thumb.jpg");
         let thumb = match stream_download(&down_client, thumb_url, &thumb_name, &headers).await {
