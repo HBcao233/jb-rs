@@ -456,6 +456,7 @@ async fn on_interval(client: Client, session: Arc<SqliteSession>) {
         else {
             continue;
         };
+
         let now = Timestamp::now();
         if now.duration_since(date) > VERIFY_LIMIT {
             let peer_ref = session

@@ -22,8 +22,13 @@ pub use crate::jbot_macro::{
     on_grouped_messages, on_interval, on_new_message, on_setup, on_update,
 };
 
+// debug 模式不 catch_up 追赶更新
 const IS_DEBUG: bool = cfg!(debug_assertions);
 
+// 定时任务间隔
+const INTERVAL_TIME: Duration = Duration::from_secs(1);
+
+// 同步 session 相关
 const SYNC_INTERVAL: Duration = Duration::from_secs(60);
 const MAX_SYNC_INTERVAL: Duration = Duration::from_secs(600);
 const SESSION_FILE: &str = "jbot.session";
@@ -62,6 +67,18 @@ async fn async_main() {
         log::info!("Signed in!");
     }
 
+    let bg_client = client.clone();
+    let bg_session = Arc::clone(&session);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(INTERVAL_TIME);
+        loop {
+            interval.tick().await;
+            for handler in core::update::INTERVAL_HANDLERS {
+                handler(bg_client.clone(), Arc::clone(&bg_session)).await;
+            }
+        }
+    });
+
     log::info!("Waiting for messages...");
 
     let mut handler_tasks = JoinSet::new();
@@ -78,7 +95,7 @@ async fn async_main() {
     let mut sync_timer = interval(SYNC_INTERVAL);
     let mut dirty = false;
     let mut last_save_time = Instant::now();
-    let mut timer = interval(Duration::from_secs(1));
+
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => break,
@@ -113,11 +130,6 @@ async fn async_main() {
                             log::error!("Sync update state failed: {e}");
                         }
                     }
-                }
-            }
-            _ = timer.tick() => {
-                for handler in core::update::INTERVAL_HANDLERS {
-                    handler_tasks.spawn(handler(client.clone(), Arc::clone(&session)));
                 }
             }
         }
