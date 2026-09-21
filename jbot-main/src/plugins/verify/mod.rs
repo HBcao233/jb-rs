@@ -125,12 +125,6 @@ async fn handler(client: Client, update: Update, session: Arc<SqliteSession>) {
                 handle_admin_kick(client, callback, user_id).await;
             }
         }
-        /*#[cfg(debug_assertions)]
-        Update::GuestChatQuery(query) => {
-            let _ = query
-                .answer(grammers_client::update::Article::new("标题", "测试1"))
-                .await;
-        }*/
         Update::Raw(raw) => match raw.raw {
             tl::enums::Update::ChatParticipantAdd(update) => {
                 let chat = PeerId::chat(update.chat_id).unwrap().to_ambient_ref();
