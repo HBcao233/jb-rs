@@ -9,6 +9,8 @@ use std::sync::{Arc, OnceLock};
 
 use grammers_client::Client;
 use grammers_client::message::{Button, InputMessage, Message, ReplyMarkup};
+use grammers_client::update::Update;
+use grammers_session::storages::SqliteSession;
 use grammers_session::types::{PeerId, PeerKind, PeerRef};
 use grammers_tl_types as tl;
 use regex::regex;
@@ -134,7 +136,7 @@ async fn handler(client: Client, message: Arc<Message>) {
             let _ = message.reply("avid/bvid 解析错误").await;
             return;
         };
-        if let Err(e) = send_bili(client.clone(), peer_ref, msg_id, aid, bvid).await {
+        if let Err(e) = send_bili(client.clone(), peer_ref, Some(msg_id), aid, bvid, None).await {
             error!("发送bili失败: {e:?}");
         }
     }
@@ -146,21 +148,66 @@ async fn handler(client: Client, message: Arc<Message>) {
     }
 }
 
+#[crate::on_update]
+async fn callback_handler(client: Client, update: Update, _session: Arc<SqliteSession>) {
+    match update {
+        Update::CallbackQuery(callback) => {
+            let data = callback.data();
+            let peer_id = callback.peer_id();
+            let peer_ref = callback
+                .peer_ref()
+                .await
+                .unwrap_or_default()
+                .unwrap_or(peer_id.to_ambient_ref());
+            let msg_id = match &callback.raw {
+                tl::enums::Update::BotCallbackQuery(update) => Some(update.msg_id),
+                _ => None,
+            };
+
+            if let Some((aid, p)) = GetBiliPageButton::from_data(data) {
+                let bili_id = BiliId::AV(aid);
+                let Ok((aid, bvid)) = bili_id.to_raw() else {
+                    error!(?aid, "aid 解析错误");
+                    let _ = callback.answer().alert("aid 解析错误").send().await;
+                    return;
+                };
+                let _ = callback.answer().send().await;
+
+                if let Err(e) =
+                    send_bili(client.clone(), peer_ref, msg_id, aid, bvid, Some(p)).await
+                {
+                    error!("发送bili失败: {e:?}");
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 async fn send_bili(
     client: Client,
     peer_ref: PeerRef,
-    msg_id: i32,
+    msg_id: Option<i32>,
     aid: u64,
     bvid: String,
+    p: Option<u16>,
 ) -> anyhow::Result<()> {
-    info!("aid: {aid}, bvid: {bvid}");
+    info!(aid, bvid, ?p, "send_bili");
 
+    let prefix = format!(
+        "[{bvid}{}]",
+        if let Some(some_p) = p {
+            format!(" P{}", some_p)
+        } else {
+            String::new()
+        }
+    );
     let mid = client
         .send_message(
             peer_ref,
             InputMessage::new()
-                .text(format!("[{bvid}] 请等待..."))
-                .reply_to(Some(msg_id)),
+                .text(format!("{prefix} 请等待..."))
+                .reply_to(msg_id),
         )
         .await?;
     let mid = Arc::new(mid);
@@ -181,7 +228,7 @@ async fn send_bili(
                         );
                         let reply_markup =
                             ReplyMarkup::from_buttons_row(&[Button::url("人机验证", url)]);
-                        client.send_message(peer_ref, InputMessage::new().text("请打开下面链接进行 Bilibili 的人机验证，将验证结果发送给小派魔").reply_to(Some(msg_id)).reply_markup(reply_markup)).await?;
+                        client.send_message(peer_ref, InputMessage::new().text("请打开下面链接进行 Bilibili 的人机验证，将验证结果发送给小派魔").reply_to(msg_id).reply_markup(reply_markup)).await?;
                         let (tx, rx) = oneshot::channel();
                         {
                             let g = gaia();
@@ -201,7 +248,7 @@ async fn send_bili(
                                             peer_ref,
                                             InputMessage::new()
                                                 .text(e.to_string())
-                                                .reply_to(Some(msg_id)),
+                                                .reply_to(msg_id),
                                         )
                                         .await?;
                                     return Ok(());
@@ -214,9 +261,7 @@ async fn send_bili(
                                 client
                                     .send_message(
                                         peer_ref,
-                                        InputMessage::new()
-                                            .text(e.to_string())
-                                            .reply_to(Some(msg_id)),
+                                        InputMessage::new().text(e.to_string()).reply_to(msg_id),
                                     )
                                     .await?;
                                 return Ok(());
@@ -236,7 +281,22 @@ async fn send_bili(
         },
     };
 
-    let Ok((msg, page, pic)) = parse_msg(info, 1) else {
+    // 分P选择
+    if info.pages.len() > 2 && p.is_none() {
+        let len = info.pages.len() as u16;
+        let buttons: Vec<Button> = (1..=len).map(|p| GetBiliPageButton::new(aid, p)).collect();
+        let buttons = group_buttons(buttons);
+        let reply_markup = ReplyMarkup::from_buttons(&buttons);
+        mid.edit(
+            InputMessage::new()
+                .text("检测到分P视频，请选择分集:")
+                .reply_markup(reply_markup),
+        )
+        .await?;
+        return Ok(());
+    }
+
+    let Ok((msg, page, pic)) = parse_msg(info, p.unwrap_or(1)) else {
         let _ = mid.edit("视频分P 不存在").await;
         return Ok(());
     };
@@ -266,7 +326,7 @@ async fn send_bili(
                             );
                             let reply_markup =
                                 ReplyMarkup::from_buttons_row(&[Button::url("人机验证", url)]);
-                            client.send_message(peer_ref, InputMessage::new().text("请打开下面链接进行 Bilibili 的人机验证，将验证结果发送给小派魔").reply_to(Some(msg_id)).reply_markup(reply_markup)).await?;
+                            client.send_message(peer_ref, InputMessage::new().text("请打开下面链接进行 Bilibili 的人机验证，将验证结果发送给小派魔").reply_to(msg_id).reply_markup(reply_markup)).await?;
                             let (tx, rx) = oneshot::channel();
                             {
                                 let g = gaia();
@@ -291,7 +351,7 @@ async fn send_bili(
                                             peer_ref,
                                             InputMessage::new()
                                                 .text(e.to_string())
-                                                .reply_to(Some(msg_id)),
+                                                .reply_to(msg_id),
                                         )
                                         .await?;
                                     return Ok(());
@@ -307,7 +367,7 @@ async fn send_bili(
                                             peer_ref,
                                             InputMessage::new()
                                                 .text(e.to_string())
-                                                .reply_to(Some(msg_id)),
+                                                .reply_to(msg_id),
                                         )
                                         .await?;
                                     return Ok(());
@@ -357,11 +417,11 @@ async fn send_bili(
 
                     let audio_url = audio.base_url;
                     let audio_name = format!("{key}_audio.mp4");
-                    let prefix = format!("[{bvid}] 下载音频中...");
-                    info!("{prefix}");
+                    let tip = format!("{prefix} 下载音频中...");
+                    info!("{tip}");
                     bar.style(ProgressStyle::Size);
-                    bar.prefix(&prefix);
-                    mid.edit(prefix).await?;
+                    bar.prefix(&tip);
+                    mid.edit(tip).await?;
 
                     match stream_download_with_callback(
                         &wreq_client,
@@ -376,7 +436,7 @@ async fn send_bili(
                     {
                         Ok(path) => Some(path),
                         Err(e) => {
-                            let tip = format!("[{bvid}] 音频下载失败: {e}");
+                            let tip = format!("{prefix} 音频下载失败: {e}");
                             error!("{tip}");
                             mid.edit(tip).await?;
                             return Ok(());
@@ -391,7 +451,7 @@ async fn send_bili(
                 .filter(|x| &x.mime_type == "video/mp4" && x.codecs.starts_with("avc1"))
                 .max_by_key(|x| x.id)
                 .unwrap();
-            info!("使用 video id: {}", video.id);
+            info!("{prefix} 使用 video id: {}", video.id);
 
             let mut video_urls = Vec::with_capacity(video.backup_url.len() + 1);
             video_urls.push(video.base_url);
@@ -401,15 +461,18 @@ async fn send_bili(
             let mut i = 0;
             let video_path = loop {
                 let url = &video_urls[i];
-                let prefix = if i == 0 {
-                    format!("[{bvid}] 下载视频中...")
-                } else {
-                    format!("[{bvid}] 下载视频中 (重试 {i})...")
-                };
-                info!("{prefix}");
+                let tip = format!(
+                    "{prefix} 下载视频中{}...",
+                    if i == 0 {
+                        String::new()
+                    } else {
+                        format!(" (重试 {i})")
+                    }
+                );
+                info!("{tip}");
                 bar.style(ProgressStyle::Size);
-                bar.prefix(&prefix);
-                mid.edit(prefix).await?;
+                bar.prefix(&tip);
+                mid.edit(tip).await?;
                 match stream_download_with_callback(
                     &wreq_client,
                     url,
@@ -426,7 +489,7 @@ async fn send_bili(
                         if i < video_urls.len() {
                             i += 1;
                         } else {
-                            let tip = format!("[{bvid}] 视频下载失败: {e}");
+                            let tip = format!("{prefix} 视频下载失败: {e}");
                             error!("{tip}");
                             mid.edit(tip).await?;
                             return Ok(());
@@ -439,11 +502,11 @@ async fn send_bili(
             let path = match audio_path {
                 None => video_path,
                 Some(ap) => {
-                    let prefix = format!("[{bvid}] 处理中...");
-                    info!("{prefix}");
+                    let tip = format!("{prefix} 处理中...");
+                    info!("{tip}");
                     bar.style(ProgressStyle::Time);
-                    bar.prefix(&prefix);
-                    mid.edit(prefix).await?;
+                    bar.prefix(&tip);
+                    mid.edit(tip).await?;
 
                     match merge_media(ap, video_path, &name, |current, total| {
                         bar.sync_update(current, total);
@@ -452,7 +515,7 @@ async fn send_bili(
                     {
                         Ok(p) => p,
                         Err(e) => {
-                            let tip = format!("[{bvid}] 视频处理失败");
+                            let tip = format!("{prefix} 视频处理失败");
                             error!("{tip}: {e}");
                             mid.edit(tip).await?;
                             return Ok(());
@@ -461,17 +524,17 @@ async fn send_bili(
                 }
             };
 
-            let prefix = format!("[{bvid}] 上传中...");
-            info!("{prefix}");
+            let tip = format!("{prefix} 上传中...");
+            info!("{tip}");
             bar.style(ProgressStyle::Size);
-            bar.prefix(&prefix);
-            mid.edit(prefix).await?;
+            bar.prefix(&tip);
+            mid.edit(tip).await?;
             let Ok(uploaded) = upload_file_with_callback(&client, path, |uploaded, total| {
                 bar.sync_update(uploaded, total);
             })
             .await
             else {
-                mid.edit(format!("[{bvid}] 上传失败")).await?;
+                mid.edit(format!("{prefix} 上传失败")).await?;
                 return Ok(());
             };
 
@@ -508,21 +571,21 @@ async fn send_bili(
         } else if let Some(durl) = playurl.durl {
             let url = durl.into_iter().next().unwrap().url.clone();
 
-            mid.edit(format!("[{bvid}] 下载中...")).await?;
+            mid.edit(format!("{prefix} 下载中...")).await?;
             let name = format!("{key}.mp4");
             let path = match stream_download(&wreq_client, &url, &name, &headers).await {
                 Ok(path) => path,
                 Err(e) => {
-                    let tip = format!("[{bvid}] 下载失败: {e}");
+                    let tip = format!("{prefix} 下载失败: {e}");
                     error!("{tip}");
                     mid.edit(tip).await?;
                     return Ok(());
                 }
             };
 
-            mid.edit(format!("[{bvid}] 上传中...")).await?;
+            mid.edit(format!("{prefix} 上传中...")).await?;
             let Ok(uploaded) = client.upload_file(path).await else {
-                mid.edit(format!("[{bvid}] 上传失败")).await?;
+                mid.edit(format!("{prefix} 上传失败")).await?;
                 return Ok(());
             };
 
@@ -561,7 +624,7 @@ async fn send_bili(
         }
     };
 
-    let mut input_message = InputMessage::new().html(msg).reply_to(Some(msg_id));
+    let mut input_message = InputMessage::new().html(msg).reply_to(msg_id);
     if let Some(m) = input_media {
         input_message = input_message.media(m);
     }
@@ -585,20 +648,20 @@ async fn send_bili(
     let path = match stream_download(&wreq_client, &pic, &name, &headers).await {
         Ok(path) => path,
         Err(e) => {
-            error!("[{bvid}] 封面下载失败: {e}");
+            error!("{prefix} 封面下载失败: {e}");
             return Ok(());
         }
     };
 
     let Ok(uploaded) = client.upload_file(path).await else {
-        error!("[{bvid}] 上传封面失败");
+        error!("{prefix} 上传封面失败");
         return Ok(());
     };
 
     client
         .send_message(
             peer_ref,
-            InputMessage::new().photo(uploaded).reply_to(Some(msg_id)),
+            InputMessage::new().photo(uploaded).reply_to(msg_id),
         )
         .await?;
 
@@ -640,4 +703,42 @@ where
     }
 
     Ok(path)
+}
+
+pub struct GetBiliPageButton;
+
+impl GetBiliPageButton {
+    const ID: [u8; 4] = crate::id!("get_bili_page");
+
+    pub fn new(aid: u64, p: u16) -> Button {
+        let mut data = Vec::with_capacity(14);
+        data.extend_from_slice(&Self::ID);
+        data.extend_from_slice(&aid.to_le_bytes());
+        data.extend_from_slice(&p.to_le_bytes());
+        Button::data(format!("P{p}"), data)
+    }
+
+    pub fn from_data(data: &[u8]) -> Option<(u64, u16)> {
+        if &data[..4] == &Self::ID {
+            let aid = u64::from_le_bytes(data[4..12].try_into().unwrap());
+            let p = u16::from_le_bytes(data[12..14].try_into().unwrap());
+            Some((aid, p))
+        } else {
+            None
+        }
+    }
+}
+
+fn group_buttons(buttons: Vec<Button>) -> Vec<Vec<Button>> {
+    let row_count = buttons.len().div_ceil(8);
+    let base = buttons.len() / row_count;
+    let extra = buttons.len() % row_count;
+
+    let mut iter = buttons.into_iter();
+    (0..row_count)
+        .map(|i| {
+            let count = base + usize::from(i < extra);
+            iter.by_ref().take(count).collect()
+        })
+        .collect()
 }
