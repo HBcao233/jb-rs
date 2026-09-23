@@ -32,6 +32,7 @@ pub struct Video {
     pub play_addr: Addr,
     pub download_addr: Option<Addr>,
     pub origin_cover: Addr,
+    pub cover: Addr,
 }
 
 #[derive(Debug, Deserialize)]
@@ -44,6 +45,7 @@ pub struct Addr {
 #[derive(Debug, Deserialize)]
 pub struct Image {
     pub url_list: Vec<String>,
+    pub video: Option<Video>,
 }
 
 #[derive(Debug, thiserror::Error)]

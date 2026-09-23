@@ -145,6 +145,7 @@ async fn send_douyin(
         .build()?;
     let headers = vec![("referer", "https://www.douyin.com/".to_string())];
 
+    let mut deleted = false;
     if detail.images.is_none()
         && let Some(video) = detail.video
     {
@@ -230,47 +231,137 @@ async fn send_douyin(
                 error!("发送视频失败: {e}");
             }
         }
+
+        mid.delete().await?;
+        deleted = true;
     }
 
-    mid.delete().await?;
-
     if let Some(images) = detail.images {
-        let mid = client
-            .send_message(
-                peer_ref,
-                InputMessage::new()
-                    .text(format!("{prefix} 请等待..."))
-                    .reply_to(Some(msg_id)),
-            )
-            .await?;
+        if deleted {
+            mid = Arc::new(
+                client
+                    .send_message(
+                        peer_ref,
+                        InputMessage::new()
+                            .text(format!("{prefix} 请等待..."))
+                            .reply_to(Some(msg_id)),
+                    )
+                    .await?,
+            );
+        }
 
         let count = images.len();
         let mut medias = Vec::with_capacity(count);
+        let map_key = |index: usize, image: &types::Image| match image.video {
+            None => format!("douyin_image_{aid}_p{}", index),
+            Some(_) => format!("douyin_image_video_{aid}_p{}", index),
+        };
         for (index, image) in images.iter().enumerate() {
-            let key = format!("douyin_image_{aid}_p{}", index);
+            let key = map_key(index, image);
+            let human_index = index + 1;
+
             let mut media = if let Some(m) = db::get_media(&key).await? {
                 info!("使用已发送过的媒体: {key}");
                 InputMedia::new().media(m)
-            } else {
-                let name = format!("{key}.jpeg");
-                let url = image.url_list.last().unwrap();
-                mid.edit(format!("{prefix} 下载图片中 {} / {}...", index + 1, count))
-                    .await?;
+            } else if let Some(ref video) = image.video {
+                let thumb_url = video.cover.url_list.last().unwrap();
+                let thumb_name = format!("{key}_thumb.jpg");
+                let thumb =
+                    match stream_download(&down_client, thumb_url, &thumb_name, &headers).await {
+                        Ok(path) => match client.upload_file(path).await {
+                            Ok(uploaded) => Some(uploaded.raw),
+                            Err(e) => {
+                                warn!("上传 {thumb_name} 失败: {e}");
+                                None
+                            }
+                        },
+                        Err(e) => {
+                            warn!("下载 {thumb_name} 失败: {e}");
+                            None
+                        }
+                    };
 
-                let path = match stream_download(&wreq_client, &url, &name, &headers).await {
+                let w = video.play_addr.width;
+                let h = video.play_addr.height;
+                let duration = video.duration as f64 / 1000.0;
+                let url = video.play_addr.url_list.last().unwrap();
+                let name = format!("{key}.mp4");
+
+                let p = format!("{prefix} 下载动图中 {human_index} / {count}...");
+                info!("{p}");
+                let _ = mid.edit(p).await;
+                let path = match stream_download(&down_client, url, &name, &headers).await {
                     Ok(path) => path,
                     Err(e) => {
-                        let tip = format!("{prefix} 图片 {} 下载失败: {e}", index + 1);
+                        let tip = format!("{prefix} 动图 {human_index} 下载失败: {e}");
                         error!("{tip}");
                         mid.edit(tip).await?;
                         return Ok(());
                     }
                 };
 
-                mid.edit(format!("{prefix} 上传图片中 {} / {}...", index + 1, count))
-                    .await?;
+                let p = format!("{prefix} 上传动图中 {human_index} / {count}...");
+                info!("{p}");
+                let _ = mid.edit(p).await;
+                let uploaded = match client.upload_file(path).await {
+                    Ok(u) => u,
+                    Err(_) => {
+                        let p = format!("{prefix} 上传动图 {human_index} 失败");
+                        error!("{p}");
+                        mid.edit(p).await?;
+                        return Ok(());
+                    }
+                };
+
+                InputMedia::new().media(tl::types::InputMediaUploadedDocument {
+                    nosound_video: true,
+                    force_file: false,
+                    spoiler: false,
+                    file: uploaded.raw,
+                    thumb,
+                    mime_type: "video/mp4".to_string(),
+                    attributes: vec![
+                        tl::types::DocumentAttributeFilename { file_name: name }.into(),
+                        tl::types::DocumentAttributeVideo {
+                            round_message: false,
+                            supports_streaming: true,
+                            nosound: false,
+                            duration,
+                            w,
+                            h,
+                            preload_prefix_size: None,
+                            video_start_ts: None,
+                            video_codec: None,
+                        }
+                        .into(),
+                    ],
+                    stickers: None,
+                    ttl_seconds: None,
+                    video_cover: None,
+                    video_timestamp: None,
+                })
+            } else {
+                let name = format!("{key}.jpeg");
+                let url = image.url_list.last().unwrap();
+                let _ = mid
+                    .edit(format!("{prefix} 下载图片中 {human_index} / {count}..."))
+                    .await;
+
+                let path = match stream_download(&down_client, &url, &name, &headers).await {
+                    Ok(path) => path,
+                    Err(e) => {
+                        let tip = format!("{prefix} 图片 {human_index} 下载失败: {e}");
+                        error!("{tip}");
+                        mid.edit(tip).await?;
+                        return Ok(());
+                    }
+                };
+
+                let _ = mid
+                    .edit(format!("{prefix} 上传图片中 {human_index} / {count}..."))
+                    .await;
                 let Ok(uploaded) = client.upload_file(path).await else {
-                    let tip = format!("{prefix} 图片 {} 上传失败", index + 1);
+                    let tip = format!("{prefix} 图片 {human_index} 上传失败");
                     error!("{tip}");
                     mid.edit(tip).await?;
                     return Ok(());
@@ -288,7 +379,7 @@ async fn send_douyin(
         match client.send_album(peer_ref, medias).await {
             Ok(messages) => {
                 for (index, message) in messages.into_iter().enumerate() {
-                    let key = format!("douyin_image_{aid}_p{}", index);
+                    let key = map_key(index, images.get(index).unwrap());
                     if let Some(m) = message {
                         match db::insert_from_message(&m, Some(&key)).await {
                             Ok(_) => {

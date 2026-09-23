@@ -21,81 +21,81 @@ pub async fn get_aweme_detail(client: &Client, aid: &str) -> Result<AwemeDetail,
     }
 
     let cache_file = cache_dir.join(&format!("{aid}.json"));
-    let res: Value = if let Ok(text) = fs::read_to_string(&cache_file).await {
+    /*let res: Value = if let Ok(text) = fs::read_to_string(&cache_file).await {
         info!("使用缓存: {}", cache_file.display());
         serde_json::from_str(&text)?
+    } else {*/
+    let mut query = vec![
+        ("aweme_id", aid.to_string()),
+        ("device_platform", "webapp".to_string()),
+        ("aid", "6383".to_string()),
+        ("channel", "channel_pc_web".to_string()),
+        ("request_source", "600".to_string()),
+        ("origin_type", "video_page".to_string()),
+        ("update_version_code", "170400".to_string()),
+        ("pc_client_type", "1".to_string()),
+        ("pc_libra_divert", "Linux".to_string()),
+        ("support_h265", "1".to_string()),
+        ("support_dash", "1".to_string()),
+        ("cpu_core_num", "8".to_string()),
+        ("version_code", "190500".to_string()),
+        ("version_name", "19.5.0".to_string()),
+        ("cookie_enabled", "true".to_string()),
+        ("screen_width", "360".to_string()),
+        ("screen_height", "800".to_string()),
+        ("browser_language", "zh-CN".to_string()),
+        ("browser_platform", "Linux armv81".to_string()),
+        ("browser_name", "Chrome".to_string()),
+        ("browser_version", "137.0.0.0".to_string()),
+        ("browser_online", "true".to_string()),
+        ("engine_name", "Blink".to_string()),
+        ("engine_version", "137.0.0.0".to_string()),
+        ("os_name", "Linux".to_string()),
+        ("os_version", "x86_64".to_string()),
+        ("device_memory", "8".to_string()),
+        ("platform", "PC".to_string()),
+        ("downlink", "10".to_string()),
+        ("effective_type", "4g".to_string()),
+        ("round_trip_time", "50".to_string()),
+        ("webid", "7671197164462655017".to_string()),
+        // ("uifid", UIFID.to_string()),
+        (
+            "verifyFp",
+            "verify_msinqp0c_NoMtCO71_mqfy_4Bh8_AAln_PnDQzGIPPtcb".to_string(),
+        ),
+        (
+            "fp",
+            "verify_msinqp0c_NoMtCO71_mqfy_4Bh8_AAln_PnDQzGIPPtcb".to_string(),
+        ),
+        // ("msToken", "_9minsurW04nyIbLhfa1zAqAQRR84EjAXfaQ-p51krUAu6y5Ulgte5fbkUGwynzfRELviaEGQvIUf2uSADk7Au9j__y9gZvL9_94Zjacl6r2LEx6EE_VdFcoS9fgCcnf1rO1pgd04xQF0hXBBc2q6gdQ9ILsXomkdrnGlAvScg66L-PncTQ0".to_string()),
+        // ("x-secsdk-web-signature", "c5f4be4a371e44e6861e914526967c20".to_string()),
+    ];
+    abogus(&mut query, "", Some(USER_AGENT), None);
+    websign(&mut query);
+
+    let response = client
+        .get(AWEME_HOST)
+        .header("user-agent", USER_AGENT)
+        .header("cookie", COOKIE)
+        .query(&query)
+        .send()
+        .await?;
+    let status = response.status();
+    if status != StatusCode::OK {
+        info!("{:?}", response.text().await);
+        return Err(GetAwemeError::Status(status.as_u16()));
+    }
+
+    let res: Value = response.json().await?;
+
+    let pretty = serde_json::to_string_pretty(&res)?;
+    if let Err(e) = fs::write(&cache_file, &pretty).await {
+        error!("缓存json文件失败: {e:?}");
     } else {
-        let mut query = vec![
-            ("aweme_id", aid.to_string()),
-            ("device_platform", "webapp".to_string()),
-            ("aid", "6383".to_string()),
-            ("channel", "channel_pc_web".to_string()),
-            ("request_source", "600".to_string()),
-            ("origin_type", "video_page".to_string()),
-            ("update_version_code", "170400".to_string()),
-            ("pc_client_type", "1".to_string()),
-            ("pc_libra_divert", "Linux".to_string()),
-            ("support_h265", "1".to_string()),
-            ("support_dash", "1".to_string()),
-            ("cpu_core_num", "8".to_string()),
-            ("version_code", "190500".to_string()),
-            ("version_name", "19.5.0".to_string()),
-            ("cookie_enabled", "true".to_string()),
-            ("screen_width", "360".to_string()),
-            ("screen_height", "800".to_string()),
-            ("browser_language", "zh-CN".to_string()),
-            ("browser_platform", "Linux armv81".to_string()),
-            ("browser_name", "Chrome".to_string()),
-            ("browser_version", "137.0.0.0".to_string()),
-            ("browser_online", "true".to_string()),
-            ("engine_name", "Blink".to_string()),
-            ("engine_version", "137.0.0.0".to_string()),
-            ("os_name", "Linux".to_string()),
-            ("os_version", "x86_64".to_string()),
-            ("device_memory", "8".to_string()),
-            ("platform", "PC".to_string()),
-            ("downlink", "10".to_string()),
-            ("effective_type", "4g".to_string()),
-            ("round_trip_time", "50".to_string()),
-            ("webid", "7671197164462655017".to_string()),
-            // ("uifid", UIFID.to_string()),
-            (
-                "verifyFp",
-                "verify_msinqp0c_NoMtCO71_mqfy_4Bh8_AAln_PnDQzGIPPtcb".to_string(),
-            ),
-            (
-                "fp",
-                "verify_msinqp0c_NoMtCO71_mqfy_4Bh8_AAln_PnDQzGIPPtcb".to_string(),
-            ),
-            // ("msToken", "_9minsurW04nyIbLhfa1zAqAQRR84EjAXfaQ-p51krUAu6y5Ulgte5fbkUGwynzfRELviaEGQvIUf2uSADk7Au9j__y9gZvL9_94Zjacl6r2LEx6EE_VdFcoS9fgCcnf1rO1pgd04xQF0hXBBc2q6gdQ9ILsXomkdrnGlAvScg66L-PncTQ0".to_string()),
-            // ("x-secsdk-web-signature", "c5f4be4a371e44e6861e914526967c20".to_string()),
-        ];
-        abogus(&mut query, "", Some(USER_AGENT), None);
-        websign(&mut query);
-
-        let response = client
-            .get(AWEME_HOST)
-            .header("user-agent", USER_AGENT)
-            .header("cookie", COOKIE)
-            .query(&query)
-            .send()
-            .await?;
-        let status = response.status();
-        if status != StatusCode::OK {
-            info!("{:?}", response.text().await);
-            return Err(GetAwemeError::Status(status.as_u16()));
-        }
-
-        let res: Value = response.json().await?;
-
-        let pretty = serde_json::to_string_pretty(&res)?;
-        if let Err(e) = fs::write(&cache_file, &pretty).await {
-            error!("缓存json文件失败: {e:?}");
-        } else {
-            info!("写入缓存: {}", cache_file.display());
-        }
-        res
-    };
+        info!("写入缓存: {}", cache_file.display());
+    }
+    /*res
+    };*/
 
     let result: AwemeResult = serde_json::from_value(res)?;
     if result.status_code != 0 {
