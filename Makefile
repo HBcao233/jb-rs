@@ -8,6 +8,6 @@ build:
 b: build
 
 release:
-	cargo build --release --all-features
+	cargo build --bin jbot --release --all-features
 
 r: release

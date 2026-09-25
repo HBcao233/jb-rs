@@ -1,6 +1,16 @@
 [workspace]
 members = [
-    "jbot-main",
+    "jb",
+    "jb-core",
+    "jbot",
     "jbot-macro",
 ]
 resolver = "2"
+
+[workspace.dependencies]
+tokio = { version = "1.52.3", default-features = false, features = ["rt"] }
+tracing = { version = "0.1.44", default-features = false }
+jiff = { version = "0.2.37", default-features = false, features = ["std"] }
+wreq = { version = "0.16.1", features = ["query", "json", "stream"] }
+wreq-util = "0.2.0"
+thiserror = "2.0.21"

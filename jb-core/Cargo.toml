@@ -1,0 +1,16 @@
+[package]
+name = "jb-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+jiff.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+wreq.workspace = true
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }
+form_urlencoded = { version = "1.2" }
+md5 = { version = "0.8" }
+thiserror.workspace = true
