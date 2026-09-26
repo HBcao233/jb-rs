@@ -1,11 +1,10 @@
 use std::path::Path;
 
+use jb_core::bili::types::{BiliError, BiliInfo, Page, PlayurlInfo};
+use jb_core::bili::{fetch_bili_info, fetch_playurl, parse_desc};
 use tokio::fs;
 use tracing::error;
 use wreq::Client;
-
-use jb_core::bili::types::{BiliError, BiliInfo, Page, PlayurlInfo};
-use jb_core::bili::{fetch_bili_info, fetch_playurl, parse_desc};
 
 pub async fn get_bili(
     client: &Client,

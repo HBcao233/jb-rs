@@ -11,6 +11,8 @@ use grammers_client::update::Update;
 use grammers_session::storages::SqliteSession;
 use grammers_session::types::{PeerId, PeerKind, PeerRef};
 use grammers_tl_types as tl;
+use jb_core::bili::types::{BiliError, BiliId, GaiaValidateData, Geetest, VgateData};
+use jb_core::bili::{get_gaia, validate_gaia};
 use regex::regex;
 use tokio::fs;
 use tokio::sync::{Mutex, oneshot};
@@ -22,8 +24,6 @@ use crate::curl::{stream_download, stream_download_with_callback};
 use crate::database as db;
 use crate::progress::{Progress, ProgressScheduler, ProgressStyle};
 use crate::utils::upload_file_with_callback;
-use jb_core::bili::types::{BiliError, BiliId, GaiaValidateData, Geetest, VgateData};
-use jb_core::bili::{get_gaia, validate_gaia};
 
 const HELP: &str = "Bilibili 解析。用法: /bili <url>";
 

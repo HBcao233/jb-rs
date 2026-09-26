@@ -1,10 +1,9 @@
 use std::path::Path;
 
-use wreq::Client;
-
 pub use jb_core::bili::parse_desc;
 use jb_core::bili::types::{BiliError, BiliInfo, PlayurlInfo};
 use jb_core::bili::{fetch_bili_info, fetch_playurl};
+use wreq::Client;
 
 pub async fn get_bili_info(
     client: &Client,
