@@ -33,6 +33,7 @@ struct Inner {
     style: ProgressStyle,
     last_update: Instant,
     last_text: Option<String>,
+    message_id_invalid: bool,
 }
 
 pub struct Progress {
@@ -64,6 +65,7 @@ impl Progress {
                 style: ProgressStyle::Percent,
                 last_update: now.checked_sub(UPDATE_LIMIT).unwrap_or(now),
                 last_text: None,
+                message_id_invalid: false,
             }),
         }
     }
@@ -183,7 +185,7 @@ impl Progress {
     }
 
     async fn update_display(&self) {
-        let (p, total, style, prefix, last_text, last_update) = {
+        let (p, total, style, prefix, last_text, last_update, message_id_invalid) = {
             let guard = self.inner.read().unwrap();
             (
                 guard.p,
@@ -192,8 +194,12 @@ impl Progress {
                 guard.prefix.clone(),
                 guard.last_text.clone(),
                 guard.last_update,
+                guard.message_id_invalid,
             )
         };
+        if message_id_invalid {
+            return;
+        }
         if last_update.elapsed() < UPDATE_LIMIT {
             return;
         }
@@ -213,6 +219,10 @@ impl Progress {
             }
             Err(e) => {
                 error!("进度条更新失败: {e}");
+                if e.is("MESSAGE_ID_INVALID") {
+                    let mut guard = self.inner.write().unwrap();
+                    guard.message_id_invalid = true;
+                }
             }
         }
     }
