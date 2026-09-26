@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use wreq::header::InvalidHeaderValue;
 
 use super::abv::{av2bv, bv2av};
 
@@ -8,6 +9,9 @@ pub(super) const NAV_HOST: &str = "https://api.bilibili.com/x/web-interface/nav"
 pub(super) const INFO_HOST: &str = "https://api.bilibili.com/x/web-interface/wbi/view/detail";
 pub(super) const PLAYURL_HOST: &str = "https://api.bilibili.com/x/player/wbi/playurl";
 pub(super) const FINGER_HOST: &str = "https://api.bilibili.com/x/frontend/finger/spi";
+
+pub(super) const GAIA_VGATE_HOST: &str = "https://api.bilibili.com/x/gaia-vgate/v1/register";
+pub(super) const GAIA_VALIDATE_HOST: &str = "https://api.bilibili.com/x/gaia-vgate/v1/validate";
 
 pub(super) const MIXIN_KEY_ENC_TAB: [u8; 64] = [
     46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42, 19, 29,
@@ -58,7 +62,13 @@ impl BiliId {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum GetBiliError {
+pub enum BiliError {
+    #[error("无效的请求头: {0}")]
+    InvalidHeaderValue(#[from] InvalidHeaderValue),
+
+    #[error("IO 错误: {0}")]
+    Io(#[from] tokio::io::Error),
+
     #[error("请求失败")]
     Http(#[from] wreq::Error),
 
@@ -81,33 +91,17 @@ pub enum GetBiliError {
     Voucher(String),
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum GetPlayurlError {
-    #[error("请求失败: {0}")]
-    Http(#[from] wreq::Error),
-
-    #[error("状态码错误: {0}")]
-    Status(u16),
-
-    #[error("JSON 解析失败: {0}")]
-    Json(#[from] serde_json::Error),
-
-    #[error("需要人机验证")]
-    Voucher(String),
-}
-
 #[derive(Deserialize)]
 pub(super) struct BiliResult {
     pub(super) code: i32,
-    pub(super) data: BiliData,
+    pub(super) data: serde_json::Value,
     pub(super) message: String,
 }
 
 #[derive(Deserialize)]
-pub(super) struct BiliData {
+pub(super) struct BiliDetail {
     #[serde(rename = "View")]
-    pub(super) view: Option<BiliInfo>,
-    // pub(super) v_voucher: Option<String>,
+    pub(super) view: BiliInfo,
 }
 
 #[derive(Debug, Deserialize)]
@@ -180,14 +174,8 @@ pub struct Stat {
     view: u32,
 }
 
-#[derive(Deserialize)]
-pub(super) struct PlayurlResult {
-    pub(super) data: PlayurlInfo,
-}
-
 #[derive(Debug, Deserialize)]
 pub struct PlayurlInfo {
-    pub v_voucher: Option<String>,
     pub quality: Option<i32>,
     pub accept_quality: Option<Vec<i32>>,
     pub accept_description: Option<Vec<String>>,
@@ -220,4 +208,34 @@ pub struct DurlInfo {
     pub size: u32,
     pub url: String,
     pub backup_url: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct GaiaVgateResult {
+    pub(super) data: VgateData,
+}
+
+#[derive(Deserialize)]
+pub struct VgateData {
+    pub r#type: String,
+    pub token: String,
+    pub geetest: Geetest,
+}
+
+#[derive(Deserialize)]
+pub struct Geetest {
+    pub challenge: String,
+    pub gt: String,
+}
+
+#[derive(Deserialize)]
+pub(super) struct GaiaValidateResult {
+    // pub(super) code: i32,
+    pub(super) data: GaiaValidateData,
+}
+
+#[derive(Deserialize)]
+pub struct GaiaValidateData {
+    pub is_valid: i32,
+    pub grisk_id: String,
 }

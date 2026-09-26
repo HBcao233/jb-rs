@@ -1,20 +1,21 @@
 mod abv;
 pub mod types;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use jiff::Timestamp;
-use serde_json::Value;
+use serde::de::DeserializeOwned;
 use tokio::fs;
-use tracing::{error, info};
-use wreq::Client;
-use wreq::StatusCode;
+use tracing::{error, info, warn};
+use wreq::header::{HeaderMap, HeaderName, HeaderValue, InvalidHeaderValue};
+use wreq::{Client, StatusCode};
 
 use self::types::{
-    BiliInfo, BiliResult, DescItem, GetBiliError, GetPlayurlError, INFO_HOST, PLAYURL_HOST,
-    PlayurlInfo, PlayurlResult, QN,
+    BiliDetail, BiliError, BiliInfo, BiliResult, DescItem, FINGER_HOST, FingerResult,
+    GAIA_VALIDATE_HOST, GAIA_VGATE_HOST, GaiaValidateData, GaiaValidateResult, GaiaVgateResult,
+    INFO_HOST, MIXIN_KEY_ENC_TAB, NAV_HOST, NavResult, PLAYURL_HOST, PlayurlInfo, QN, VgateData,
+    WbiImg,
 };
-use self::types::{FINGER_HOST, FingerResult, MIXIN_KEY_ENC_TAB, NAV_HOST, NavResult, WbiImg};
 
 pub async fn get_buvid(client: &Client) -> Option<(String, String)> {
     let response = client.get(FINGER_HOST).send().await.ok()?;
@@ -60,97 +61,140 @@ pub fn wbi(query: &mut Vec<(&'_ str, String)>, mixin_key: &str) {
     query.push(("w_rid", w_rid));
 }
 
+pub async fn fetch<T: DeserializeOwned>(
+    client: &Client,
+    url: &str,
+    query: &mut Vec<(&str, String)>,
+    grisk_id: Option<String>,
+    cookies: &mut Vec<(&str, String)>,
+    headers: impl IntoIterator<Item = (&'static str, String)>,
+    cache_file: &PathBuf,
+) -> Result<T, BiliError> {
+    let mixin_key = get_mixin_key(&client).await?;
+    let buvid = get_buvid(client).await;
+    if let Some((ref b3, _)) = buvid {
+        let now = jiff::Timestamp::now();
+        let session = format!("{}{}", b3, now.as_millisecond());
+        let session = format!("{:x}", md5::compute(session));
+        query.push(("session", session));
+    }
+    wbi(query, &mixin_key);
+
+    if let Some((b3, b4)) = buvid {
+        cookies.push(("buvid3", b3));
+        cookies.push(("buvid4", b4));
+    }
+    if let Some(g) = grisk_id {
+        cookies.push(("x-bili-gaia-vtoken", g.to_string()));
+    }
+    let cookie: Vec<String> = cookies
+        .into_iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect();
+    let cookie: String = cookie.join("; ");
+
+    let headers = headers
+        .into_iter()
+        .map(|(key, value)| Ok((HeaderName::from_static(key), HeaderValue::from_str(&value)?)))
+        .collect::<Result<HeaderMap, InvalidHeaderValue>>()?;
+    let response = client
+        .get(url)
+        .query(&query)
+        .headers(headers)
+        .header("cookie", cookie)
+        .send()
+        .await?;
+    let status = response.status();
+    if status != StatusCode::OK {
+        return Err(BiliError::Status(status.as_u16()));
+    }
+
+    let header_voucher = response.headers().get("x-bili-gaia-vvoucher").cloned();
+    let BiliResult {
+        code,
+        message,
+        data,
+    } = response.json().await?;
+    match code {
+        0 | -352 => {
+            if let Some(v_voucher) = header_voucher {
+                return Err(BiliError::Voucher(v_voucher.to_str().unwrap().to_string()));
+            } else if let Some(v_voucher) = data["v_voucher"].as_str() {
+                return Err(BiliError::Voucher(v_voucher.to_string()));
+            }
+        }
+        -404 | 62002 | 62004 => {
+            info!(message, "not found");
+            return Err(BiliError::NotFound);
+        }
+        412 => {
+            return Err(BiliError::RiskControl);
+        }
+        _ => {
+            error!(code, message, "未知状态码");
+            return Err(BiliError::Api(format!("未知状态码 {code}")));
+        }
+    }
+
+    let pretty = serde_json::to_string_pretty(&data)?;
+    if let Err(e) = fs::write(&cache_file, &pretty).await {
+        error!("缓存json文件失败: {e:?}");
+    } else {
+        info!("写入缓存: {}", cache_file.display());
+    }
+
+    Ok(serde_json::from_value(data)?)
+}
+
 pub async fn fetch_bili_info(
     client: &Client,
     aid: u64,
     bvid: &str,
+    grisk_id: Option<String>,
+    cookies: &mut Vec<(&str, String)>,
     cache_path: &Path,
-) -> Result<BiliInfo, GetBiliError> {
+) -> Result<BiliInfo, BiliError> {
     let cache_file = cache_path.join(&format!("{bvid}.json"));
-    let res: BiliResult = if let Ok(text) = fs::read_to_string(&cache_file).await {
+    let cache: Option<BiliDetail> = match fs::read_to_string(&cache_file).await {
+        Ok(text) => match serde_json::from_str(&text) {
+            Ok(value) => Some(value),
+            Err(e) => {
+                warn!("缓存解析失败: {e}");
+                None
+            }
+        },
+        Err(_) => None,
+    };
+    let res: BiliDetail = if let Some(res) = cache {
         info!("使用缓存: {}", cache_file.display());
-        serde_json::from_str(&text)?
+        res
     } else {
-        let mixin_key = get_mixin_key(&client).await?;
         let mut query = vec![
             ("aid", aid.to_string()),
             ("need_view", String::from("1")),
             ("isGaiaAvoided", String::from("false")),
             ("web_location", String::from("1315873")),
         ];
-        wbi(&mut query, &mixin_key);
-
-        let buvid = get_buvid(client).await;
-        let cookie: String = {
-            let mut c = Vec::new();
-            if let Some((b3, b4)) = buvid {
-                c.push(("buvid3", b3));
-                c.push(("buvid4", b4));
-            }
-            let c: Vec<String> = c.into_iter().map(|(k, v)| format!("{k}={v}")).collect();
-            c.join("; ")
-        };
+        if let Some(ref g) = grisk_id {
+            query.push(("gaia_vtoken", g.to_string()));
+        }
 
         let referer = format!("https://www.bilibili.com/video/{}/", bvid);
-        let response = client
-            .get(INFO_HOST)
-            .query(&query)
-            .header("cookie", cookie)
-            .header("referer", referer)
-            .send()
-            .await?;
-        let status = response.status();
-        if status != StatusCode::OK {
-            return Err(GetBiliError::Status(status.as_u16()));
-        }
+        let headers = [("referer", referer)];
 
-        let header_voucher = response.headers().get("x-bili-gaia-vvoucher").cloned();
-        let res: Value = response.json().await?;
-        match res["code"].as_i64().unwrap() {
-            -404 | 62002 | 62004 | 0 | -352 => {
-                if let Some(v_voucher) = header_voucher {
-                    return Err(GetBiliError::Voucher(
-                        v_voucher.to_str().unwrap().to_string(),
-                    ));
-                } else if let Some(v_voucher) = res["data"]["v_voucher"].as_str() {
-                    return Err(GetBiliError::Voucher(v_voucher.to_string()));
-                } else {
-                    let pretty = serde_json::to_string_pretty(&res)?;
-                    if let Err(e) = fs::write(&cache_file, &pretty).await {
-                        error!("缓存json文件失败: {e:?}");
-                    } else {
-                        info!("写入缓存: {}", cache_file.display());
-                    }
-                }
-            }
-            _ => {}
-        }
-
-        serde_json::from_value(res)?
+        fetch(
+            client,
+            INFO_HOST,
+            &mut query,
+            grisk_id,
+            cookies,
+            headers,
+            &cache_file,
+        )
+        .await?
     };
 
-    match res.code {
-        -404 | 62002 | 62004 => {
-            info!("{}", res.message);
-            return Err(GetBiliError::NotFound);
-        }
-        0 | -352 => {}
-        412 => {
-            return Err(GetBiliError::RiskControl);
-        }
-        _ => {
-            let msg = format!("未知状态码: {} {}", res.code, res.message);
-            error!("{msg}");
-            return Err(GetBiliError::Api(msg));
-        }
-    }
-
-    match res.data.view {
-        Some(view) => Ok(view),
-        None => {
-            return Err(GetBiliError::RiskControl);
-        }
-    }
+    Ok(res.view)
 }
 
 pub fn parse_desc(desc: &[DescItem]) -> String {
@@ -174,11 +218,11 @@ pub async fn fetch_playurl(
     aid: u64,
     bvid: &str,
     cid: i64,
+    grisk_id: Option<String>,
+    cookies: &mut Vec<(&str, String)>,
     cache_path: &Path,
-) -> Result<PlayurlInfo, GetPlayurlError> {
+) -> Result<PlayurlInfo, BiliError> {
     let cache_file = cache_path.join(&format!("{bvid}_playurl.json"));
-
-    let mixin_key = get_mixin_key(&client).await?;
 
     let mut query = vec![
         ("avid", aid.to_string()),
@@ -200,50 +244,67 @@ pub async fn fetch_playurl(
         ("try_look", "1".to_string()),
         ("web_location", "1315873".to_string()),
     ];
-    let buvid = get_buvid(client).await;
-    if let Some((ref b3, _)) = buvid {
-        let now = jiff::Timestamp::now();
-        let session = format!("{}{}", b3, now.as_millisecond());
-        let session = format!("{:x}", md5::compute(session));
-        query.push(("session", session));
-    }
-    wbi(&mut query, &mixin_key);
-
-    let cookie: String = {
-        let mut c = Vec::new();
-        if let Some((b3, b4)) = buvid {
-            c.push(("buvid3", b3));
-            c.push(("buvid4", b4));
-        }
-        let c: Vec<String> = c.into_iter().map(|(k, v)| format!("{k}={v}")).collect();
-        c.join("; ")
-    };
 
     let referer = format!("https://www.bilibili.com/video/{}/", bvid);
-    let request = client
-        .get(PLAYURL_HOST)
-        .query(&query)
-        .header("cookie", cookie)
-        .header("referer", referer);
+    let headers = [("referer", referer)];
+    let res: PlayurlInfo = fetch(
+        client,
+        PLAYURL_HOST,
+        &mut query,
+        grisk_id,
+        cookies,
+        headers,
+        &cache_file,
+    )
+    .await?;
 
-    let response = request.send().await?;
+    Ok(res)
+}
+
+pub async fn get_gaia(
+    wreq_client: &wreq::Client,
+    v_voucher: String,
+) -> Result<VgateData, BiliError> {
+    let mut form_data = std::collections::HashMap::new();
+    form_data.insert("v_voucher", v_voucher);
+
+    let response = wreq_client
+        .post(GAIA_VGATE_HOST)
+        .form(&form_data)
+        .send()
+        .await?;
     let status = response.status();
     if status != StatusCode::OK {
-        return Err(GetPlayurlError::Status(status.as_u16()));
+        return Err(BiliError::Status(status.into()));
     }
 
-    let res: Value = response.json().await?;
+    let res: GaiaVgateResult = response.json().await?;
+    Ok(res.data)
+}
 
-    let pretty = serde_json::to_string_pretty(&res)?;
-    if let Err(e) = fs::write(&cache_file, &pretty).await {
-        error!("缓存json文件失败: {e:?}");
-    } else {
-        info!("写入缓存: {}", cache_file.display());
-    }
-    let res: PlayurlResult = serde_json::from_value(res)?;
+pub async fn validate_gaia(
+    wreq_client: &wreq::Client,
+    token: String,
+    challenge: String,
+    validate: String,
+    seccode: String,
+) -> Result<GaiaValidateData, BiliError> {
+    let mut form_data = std::collections::HashMap::new();
+    form_data.insert("token", token);
+    form_data.insert("challenge", challenge);
+    form_data.insert("validate", validate);
+    form_data.insert("seccode", seccode);
 
-    if let Some(v_voucher) = res.data.v_voucher {
-        return Err(GetPlayurlError::Voucher(v_voucher));
+    let response = wreq_client
+        .post(GAIA_VALIDATE_HOST)
+        .form(&form_data)
+        .send()
+        .await?;
+    let status = response.status();
+    if status != StatusCode::OK {
+        return Err(BiliError::Status(status.into()));
     }
+
+    let res: GaiaValidateResult = response.json().await?;
     Ok(res.data)
 }

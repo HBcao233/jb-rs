@@ -5,12 +5,12 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tracing::{error, info, warn};
 use wreq::header::HeaderValue;
-use wreq_util::Emulation::Chrome137;
+use wreq_util::Emulation;
 
 fn empty_callback(_downloaded: usize, _total: Option<usize>) {}
 
 pub fn get_client() -> wreq::ClientBuilder {
-    wreq::Client::builder().emulation(Chrome137)
+    wreq::Client::builder().emulation(Emulation::Chrome137)
 }
 
 pub async fn stream_download(

@@ -1128,6 +1128,7 @@ dependencies = [
  "grammers-client",
  "grammers-session",
  "grammers-tl-types",
+ "jb-core",
  "jbot-macro",
  "jiff",
  "libsql",

@@ -25,11 +25,7 @@ verify = ["group_config", "dep:rand"]
 bili = [
     "core_curl",
     "dep:regex",
-    "dep:thiserror",
-    "dep:serde",
-    "dep:serde_json",
-    "dep:form_urlencoded",
-    "dep:md5",
+    "dep:jb-core",
 ]
 douyin = [
     "core_curl",
@@ -52,6 +48,7 @@ twitter = [
 
 [dependencies]
 jbot-macro = { path = "../jbot-macro" }
+jb-core = { path = "../jb-core", optional = true }
 
 grammers-client = { path = "../../grammers/grammers-client", default-features = false, features = ["fs", "html"] }
 grammers-session = { path = "../../grammers/grammers-session", default-features = false, features = ["sqlite-storage"] }

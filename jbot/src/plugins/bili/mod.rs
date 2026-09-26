@@ -1,6 +1,4 @@
-mod abv;
 mod data_source;
-mod types;
 
 use std::collections::HashMap;
 use std::env;
@@ -18,13 +16,14 @@ use tokio::fs;
 use tokio::sync::{Mutex, oneshot};
 use tracing::{error, info, warn};
 
-use self::data_source::{get_bili, get_gaia, get_playurl, parse_msg, validate_gaia};
-use self::types::BiliId;
+use self::data_source::{get_bili, get_playurl, parse_msg};
 use crate::FFmpeg;
 use crate::curl::{stream_download, stream_download_with_callback};
 use crate::database as db;
 use crate::progress::{Progress, ProgressScheduler, ProgressStyle};
 use crate::utils::upload_file_with_callback;
+use jb_core::bili::types::{BiliError, BiliId, GaiaValidateData, Geetest, VgateData};
+use jb_core::bili::{get_gaia, validate_gaia};
 
 const HELP: &str = "Bilibili 解析。用法: /bili <url>";
 
@@ -218,10 +217,14 @@ async fn send_bili(
 
     let info = match get_bili(&wreq_client, aid, &bvid, None).await {
         Ok(info) => info,
-        Err(e) => match e {
-            types::GetBiliError::Voucher(v_voucher) => {
-                match get_gaia(&wreq_client, v_voucher).await {
-                    Ok((token, challenge, gt)) => {
+        Err(e) => {
+            match e {
+                BiliError::Voucher(v_voucher) => match get_gaia(&wreq_client, v_voucher).await {
+                    Ok(VgateData {
+                        r#type: _,
+                        token,
+                        geetest: Geetest { challenge, gt },
+                    }) => {
                         let _ = mid.delete().await;
                         let url = format!(
                             "https://hbcao233.github.io/geetest-validator/?challenge={challenge}&gt={gt}"
@@ -237,7 +240,7 @@ async fn send_bili(
                         }
 
                         let (validate, seccode) = rx.await?;
-                        let grisk_id =
+                        let GaiaValidateData { grisk_id, .. } =
                             match validate_gaia(&wreq_client, token, challenge, validate, seccode)
                                 .await
                             {
@@ -272,13 +275,13 @@ async fn send_bili(
                         mid.edit(e.to_string()).await?;
                         return Ok(());
                     }
+                },
+                _ => {
+                    mid.edit(e.to_string()).await?;
+                    return Ok(());
                 }
             }
-            _ => {
-                mid.edit(e.to_string()).await?;
-                return Ok(());
-            }
-        },
+        }
     };
 
     // 分P选择
@@ -317,32 +320,30 @@ async fn send_bili(
         let playurl = match get_playurl(&wreq_client, aid, &bvid, cid, None).await {
             Ok(p) => p,
             Err(e) => match e {
-                types::GetPlayurlError::Voucher(v_voucher) => {
-                    match get_gaia(&wreq_client, v_voucher).await {
-                        Ok((token, challenge, gt)) => {
-                            let _ = mid.delete().await;
-                            let url = format!(
-                                "https://hbcao233.github.io/geetest-validator/?challenge={challenge}&gt={gt}"
-                            );
-                            let reply_markup =
-                                ReplyMarkup::from_buttons_row(&[Button::url("人机验证", url)]);
-                            client.send_message(peer_ref, InputMessage::new().text("请打开下面链接进行 Bilibili 的人机验证，将验证结果发送给小派魔").reply_to(msg_id).reply_markup(reply_markup)).await?;
-                            let (tx, rx) = oneshot::channel();
-                            {
-                                let g = gaia();
-                                let mut guard = g.lock().await;
-                                guard.insert(peer_ref.id, tx);
-                            }
+                BiliError::Voucher(v_voucher) => match get_gaia(&wreq_client, v_voucher).await {
+                    Ok(VgateData {
+                        r#type: _,
+                        token,
+                        geetest: Geetest { challenge, gt },
+                    }) => {
+                        let _ = mid.delete().await;
+                        let url = format!(
+                            "https://hbcao233.github.io/geetest-validator/?challenge={challenge}&gt={gt}"
+                        );
+                        let reply_markup =
+                            ReplyMarkup::from_buttons_row(&[Button::url("人机验证", url)]);
+                        client.send_message(peer_ref, InputMessage::new().text("请打开下面链接进行 Bilibili 的人机验证，将验证结果发送给小派魔").reply_to(msg_id).reply_markup(reply_markup)).await?;
+                        let (tx, rx) = oneshot::channel();
+                        {
+                            let g = gaia();
+                            let mut guard = g.lock().await;
+                            guard.insert(peer_ref.id, tx);
+                        }
 
-                            let (validate, seccode) = rx.await?;
-                            let grisk_id = match validate_gaia(
-                                &wreq_client,
-                                token,
-                                challenge,
-                                validate,
-                                seccode,
-                            )
-                            .await
+                        let (validate, seccode) = rx.await?;
+                        let GaiaValidateData { grisk_id, .. } =
+                            match validate_gaia(&wreq_client, token, challenge, validate, seccode)
+                                .await
                             {
                                 Ok(g) => g,
                                 Err(e) => {
@@ -357,31 +358,28 @@ async fn send_bili(
                                     return Ok(());
                                 }
                             };
-                            info!("grisk_id: {grisk_id}");
+                        info!("grisk_id: {grisk_id}");
 
-                            match get_playurl(&wreq_client, aid, &bvid, cid, Some(grisk_id)).await {
-                                Ok(p) => p,
-                                Err(e) => {
-                                    client
-                                        .send_message(
-                                            peer_ref,
-                                            InputMessage::new()
-                                                .text(e.to_string())
-                                                .reply_to(msg_id),
-                                        )
-                                        .await?;
-                                    return Ok(());
-                                }
+                        match get_playurl(&wreq_client, aid, &bvid, cid, Some(grisk_id)).await {
+                            Ok(p) => p,
+                            Err(e) => {
+                                client
+                                    .send_message(
+                                        peer_ref,
+                                        InputMessage::new().text(e.to_string()).reply_to(msg_id),
+                                    )
+                                    .await?;
+                                return Ok(());
                             }
-                        }
-                        Err(e) => {
-                            if let Err(e) = mid.edit(e.to_string()).await {
-                                error!("消息发送失败: {e}");
-                            }
-                            return Ok(());
                         }
                     }
-                }
+                    Err(e) => {
+                        if let Err(e) = mid.edit(e.to_string()).await {
+                            error!("消息发送失败: {e}");
+                        }
+                        return Ok(());
+                    }
+                },
                 _ => {
                     if let Err(e) = mid.edit(e.to_string()).await {
                         error!("消息发送失败: {e}");
