@@ -3,7 +3,7 @@ fmt:
 	@script -q -c 'cargo +nightly fmt' /dev/null
 
 build:
-	cargo build --all-features
+	cargo build --bin jbot --all-features
 
 b: build
 
