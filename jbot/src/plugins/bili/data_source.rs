@@ -24,7 +24,7 @@ pub async fn get_bili(
         cookies.push(("SESSDATA", s.to_string()));
     }
 
-    fetch_bili_info(client, aid, bvid, grisk_id, &mut cookies, &cache_dir).await
+    fetch_bili_info(client, aid, bvid, grisk_id, &cookies, &cache_dir).await
 }
 
 pub fn parse_msg(info: BiliInfo, p: u16) -> Result<(String, Page, String), ()> {
@@ -89,5 +89,5 @@ pub async fn get_playurl(
         cookies.push(("SESSDATA", s.to_string()));
     }
 
-    fetch_playurl(client, aid, bvid, cid, grisk_id, &mut cookies, &cache_dir).await
+    fetch_playurl(client, aid, bvid, cid, grisk_id, &cookies, &cache_dir).await
 }

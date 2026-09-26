@@ -2,6 +2,8 @@ mod bili;
 mod core;
 
 use std::env;
+use std::fs;
+use std::io;
 use std::process::exit;
 
 use tokio::runtime;
@@ -16,9 +18,10 @@ const BLUE: &str = "\x1b[1;34m";
 const CYAN: &str = "\x1b[36m";
 const YELLOW: &str = "\x1b[1;33m";
 
-#[derive(Copy, Default, Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct Options {
     info: bool,
+    cookies: Vec<(String, String)>,
 }
 
 async fn async_main() {
@@ -39,14 +42,44 @@ async fn async_main() {
 {GREEN}Usage{NC}: jb [Options] <url>
 
 {BLUE}Options{NC}:
-  -i, --info   仅显示信息不进行下载
-  -h, --help   显示此帮助信息
+  -c [cookie], --cookie [cookie]  使用 cookie
+  -i, --info                      仅显示信息不进行下载
+  -h, --help                      显示此帮助信息
 "
                 );
                 exit(0);
-            }
-            if arg == "-i" {
+            } else if arg == "-i" || arg == "--info" {
                 options.info = true;
+            } else if arg == "-c" || arg == "--cookie" || arg == "--cookies" {
+                match args.next() {
+                    Some(cookie) if !cookie.is_empty() => {
+                        let cookies = if cookie.contains('=') {
+                            cookie
+                        } else {
+                            match fs::read_to_string(&cookie) {
+                                Ok(text) => text,
+                                Err(e) => {
+                                    if e.kind() == io::ErrorKind::NotFound {
+                                        eprintln!(
+                                            "{RED}error{NC}: file \"{cookie}\" not found.\n\
+                                            \n\
+                                            {BLUE}note{NC}: string without char '=' will be treated as filename."
+                                        );
+                                    } else {
+                                        eprintln!("{RED}error{NC}: reading file failed: {e}");
+                                    }
+                                    exit(1);
+                                }
+                            }
+                        };
+                        let cookies = parse_cookies(&cookies);
+                        options.cookies = cookies;
+                    }
+                    _ => {
+                        eprintln!("{RED}error{NC}: \"{arg}\" must be followed by a value.");
+                        exit(1);
+                    }
+                }
             }
         } else {
             if input.is_some() {
@@ -66,7 +99,10 @@ async fn async_main() {
         exit(1);
     });
 
-    bili::crawler_bili(&input, options).await;
+    bili::crawler_bili(&input, &options).await;
+
+    eprintln!("{RED}error{NC}: Unsupported url: \"{input}\".");
+    exit(1);
 }
 
 fn main() {
@@ -83,4 +119,18 @@ fn main() {
         .build()
         .unwrap()
         .block_on(async_main());
+}
+
+fn parse_cookies(cookies: &str) -> Vec<(String, String)> {
+    cookies
+        .split(";")
+        .filter_map(|c| {
+            let mut parts = c.trim().splitn(2, '=');
+            if let (Some(key), Some(value)) = (parts.next(), parts.next()) {
+                Some((key.trim().to_string(), value.trim().to_string()))
+            } else {
+                None
+            }
+        })
+        .collect()
 }

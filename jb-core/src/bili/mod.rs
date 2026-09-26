@@ -61,15 +61,19 @@ pub fn wbi(query: &mut Vec<(&'_ str, String)>, mixin_key: &str) {
     query.push(("w_rid", w_rid));
 }
 
-pub async fn fetch<T: DeserializeOwned>(
+pub async fn fetch<T: DeserializeOwned, K, V>(
     client: &Client,
     url: &str,
     query: &mut Vec<(&str, String)>,
     grisk_id: Option<String>,
-    cookies: &mut Vec<(&str, String)>,
+    cookies: &[(K, V)],
     headers: impl IntoIterator<Item = (&'static str, String)>,
     cache_file: &PathBuf,
-) -> Result<T, BiliError> {
+) -> Result<T, BiliError>
+where
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
     let mixin_key = get_mixin_key(&client).await?;
     let buvid = get_buvid(client).await;
     if let Some((ref b3, _)) = buvid {
@@ -80,18 +84,18 @@ pub async fn fetch<T: DeserializeOwned>(
     }
     wbi(query, &mixin_key);
 
+    let mut c: Vec<String> = Vec::new();
+    for (k, v) in cookies.into_iter() {
+        c.push(format!("{}={}", k.as_ref(), v.as_ref()));
+    }
     if let Some((b3, b4)) = buvid {
-        cookies.push(("buvid3", b3));
-        cookies.push(("buvid4", b4));
+        c.push(format!("buvid3={}", b3));
+        c.push(format!("buvid4={}", b4));
     }
     if let Some(g) = grisk_id {
-        cookies.push(("x-bili-gaia-vtoken", g.to_string()));
+        c.push(format!("x-bili-gaia-vtoken={}", g));
     }
-    let cookie: Vec<String> = cookies
-        .into_iter()
-        .map(|(k, v)| format!("{k}={v}"))
-        .collect();
-    let cookie: String = cookie.join("; ");
+    let cookie: String = c.join("; ");
 
     let headers = headers
         .into_iter()
@@ -146,14 +150,18 @@ pub async fn fetch<T: DeserializeOwned>(
     Ok(serde_json::from_value(data)?)
 }
 
-pub async fn fetch_bili_info(
+pub async fn fetch_bili_info<K, V>(
     client: &Client,
     aid: u64,
     bvid: &str,
     grisk_id: Option<String>,
-    cookies: &mut Vec<(&str, String)>,
+    cookies: &[(K, V)],
     cache_path: &Path,
-) -> Result<BiliInfo, BiliError> {
+) -> Result<BiliInfo, BiliError>
+where
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
     let cache_file = cache_path.join(&format!("{bvid}.json"));
     let cache: Option<BiliDetail> = match fs::read_to_string(&cache_file).await {
         Ok(text) => match serde_json::from_str(&text) {
@@ -213,15 +221,19 @@ pub fn parse_desc(desc: &[DescItem]) -> String {
         .join("")
 }
 
-pub async fn fetch_playurl(
+pub async fn fetch_playurl<K, V>(
     client: &Client,
     aid: u64,
     bvid: &str,
     cid: i64,
     grisk_id: Option<String>,
-    cookies: &mut Vec<(&str, String)>,
+    cookies: &[(K, V)],
     cache_path: &Path,
-) -> Result<PlayurlInfo, BiliError> {
+) -> Result<PlayurlInfo, BiliError>
+where
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
     let cache_file = cache_path.join(&format!("{bvid}_playurl.json"));
 
     let mut query = vec![

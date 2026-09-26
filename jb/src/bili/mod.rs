@@ -13,7 +13,7 @@ use crate::curl::{get_client, stream_download};
 use crate::ffmpeg::FFmpeg;
 use crate::{BLUE, CYAN, GREEN, NC, Options, RED, YELLOW, align_left, padding_left};
 
-pub async fn crawler_bili(input: &str, options: Options) {
+pub async fn crawler_bili(input: &str, options: &Options) {
     let mut text = input.to_string();
     let re = Regex::new(
         r"(?:(?:https?://)?bilibili\.com/video/)?(av\d{2,16}|(?:BV|bv)[0-9a-zA-Z]{8,12})",
@@ -57,7 +57,7 @@ pub async fn crawler_bili(input: &str, options: Options) {
         };
 
         let Ok((aid, bvid)) = bili_id.to_raw() else {
-            eprintln!("{RED}error{NC}: avid/bvid 解析错误");
+            eprintln!("{RED}error{NC}: 无效的 avid/bvid: {id}");
             exit(400);
         };
         if let Err(e) = parse_bili(aid, bvid, options).await {
@@ -71,7 +71,7 @@ pub async fn crawler_bili(input: &str, options: Options) {
 async fn parse_bili(
     aid: u64,
     bvid: String,
-    options: Options,
+    options: &Options,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let client = get_client().build()?;
     let referer = format!("https://www.bilibili.com/video/{}/", bvid);
@@ -83,7 +83,7 @@ async fn parse_bili(
         pic,
         pages,
         ..
-    } = get_bili_info(&client, aid, &bvid).await?;
+    } = get_bili_info(&client, aid, &bvid, &options.cookies).await?;
     println!();
     println!(" {CYAN}{}{NC}  哔哩哔哩 Bilibili", align_left("Site:", 13));
     println!(" {CYAN}{}{NC}  {}", align_left("BVid:", 13), &bvid);
@@ -92,8 +92,12 @@ async fn parse_bili(
         Some(d) => parse_desc(&d),
         None => String::new(),
     };
-    let desc = padding_left(&desc, 1);
-    println!(" {CYAN}Description:{NC}\n {}", desc);
+    let desc = desc.trim();
+    if desc.contains('\n') {
+        println!(" {CYAN}Description:{NC}\n {}", padding_left(&desc, 1));
+    } else {
+        println!(" {CYAN}{}{NC}  {}", align_left("Description:", 13), desc);
+    }
 
     let p = 1;
     let mut page = None;
@@ -116,7 +120,7 @@ async fn parse_bili(
         dash,
         durl,
         ..
-    } = get_playurl(&client, aid, &bvid, cid).await?;
+    } = get_playurl(&client, aid, &bvid, cid, &options.cookies).await?;
 
     let quality = quality.unwrap();
     let accept_quality = accept_quality.unwrap();
