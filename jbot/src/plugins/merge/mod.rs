@@ -1,3 +1,4 @@
+mod buttons;
 mod database;
 
 use std::collections::{HashMap, HashSet};
@@ -5,31 +6,13 @@ use std::sync::Arc;
 
 use grammers_client::Client;
 use grammers_client::media::InputMedia;
-use grammers_client::message::{Button, InputMessage, Message, ReplyMarkup};
+use grammers_client::message::{InputMessage, Message, ReplyMarkup};
 use grammers_client::update::{CallbackQuery, Update};
 use grammers_session::storages::SqliteSession;
-use grammers_session::types::{PeerKind, PeerRef};
+use grammers_session::types::PeerRef;
 use tracing::{error, info};
 
-#[crate::on_grouped_messages]
-async fn messages_handler(client: Client, messages: Vec<Arc<Message>>) {
-    let message = messages.first().unwrap();
-    if message.outgoing() {
-        return;
-    }
-    let peer_id = message.peer_id();
-    if peer_id.kind() != PeerKind::User {
-        return;
-    }
-
-    if let Ok(Some(peer_ref)) = message.peer_ref().await {
-        if let Some(media) = message.media() {
-            if crate::utils::can_grouped(&media) {
-                send_merge_button(client.clone(), peer_ref, &messages).await;
-            }
-        }
-    }
-}
+pub use self::buttons::{AddMergeButton, DirectMergeButton, FinishMergeButton};
 
 #[crate::on_update]
 async fn callback_handler(client: Client, update: Update, _session: Arc<SqliteSession>) {
@@ -42,84 +25,11 @@ async fn callback_handler(client: Client, update: Update, _session: Arc<SqliteSe
             if let Some(_) = FinishMergeButton::from_data(data) {
                 return handle_finish_merge(callback, client).await;
             }
+            if let Some(message_ids) = DirectMergeButton::from_data(data) {
+                return handle_direct_merge(callback, client, &message_ids).await;
+            }
         }
         _ => {}
-    }
-}
-
-pub struct AddMergeButton {
-    pub raw: Button,
-}
-
-impl AddMergeButton {
-    const ID: [u8; 4] = crate::id!("add_merge");
-
-    pub fn new(message_ids: &[i32]) -> Self {
-        if message_ids.len() > 10 {
-            panic!("message_ids 长度不能大于 10");
-        }
-
-        let mut data = Vec::with_capacity(44);
-        data.extend_from_slice(&Self::ID);
-        for &num in message_ids {
-            data.extend_from_slice(&num.to_le_bytes());
-        }
-        let raw = Button::data("合并媒体", data);
-        Self { raw }
-    }
-
-    pub fn from_data(data: &[u8]) -> Option<Vec<i32>> {
-        if &data[..4] == Self::ID {
-            let res: Vec<_> = data[4..]
-                .chunks_exact(4)
-                .map(|chunk| i32::from_le_bytes(chunk.try_into().unwrap()))
-                .collect();
-            if res.len() > 10 {
-                panic!("一次添加数量不可能大于 10");
-            }
-            Some(res)
-        } else {
-            None
-        }
-    }
-}
-
-async fn send_merge_button(client: Client, peer: PeerRef, messages: &[Arc<Message>]) {
-    let text = format!("收到 {} 条媒体", messages.len());
-    let message_ids: Vec<i32> = messages.iter().map(|m| m.id()).collect();
-    let reply_markup = ReplyMarkup::from_buttons(&[vec![AddMergeButton::new(&message_ids).raw]]);
-    if let Err(e) = client
-        .send_message(
-            peer,
-            InputMessage::new()
-                .text(text)
-                .reply_to(message_ids.first().copied())
-                .reply_markup(reply_markup),
-        )
-        .await
-    {
-        error!("合并button发送失败: {e}");
-    }
-}
-
-pub struct FinishMergeButton {
-    pub raw: Button,
-}
-
-impl FinishMergeButton {
-    const ID: [u8; 4] = crate::id!("finish_merge");
-
-    pub fn new() -> Self {
-        let raw = Button::data("完成合并", Self::ID);
-        Self { raw }
-    }
-
-    pub fn from_data(data: &[u8]) -> Option<()> {
-        if &data[..4] == Self::ID {
-            Some(())
-        } else {
-            None
-        }
     }
 }
 
@@ -135,7 +45,7 @@ async fn handle_add_merge(callback: CallbackQuery, message_ids: Vec<i32>) {
             error!("回复失败按钮回调失败: {e}");
         }
     } else {
-        let reply_markup = ReplyMarkup::from_buttons(&[vec![FinishMergeButton::new().raw]]);
+        let reply_markup = ReplyMarkup::from_buttons(&[vec![FinishMergeButton::new()]]);
         match callback
             .answer()
             .respond(InputMessage::new().text(text).reply_markup(reply_markup))
@@ -165,46 +75,7 @@ async fn handle_finish_merge(callback: CallbackQuery, client: Client) {
     match database::get_session(peer_id).await {
         Ok(message_ids) => {
             let want = message_ids.len();
-            let mut success_count: usize = 0;
-
-            let uniq_ids: Vec<i32> = {
-                let mut seen = HashSet::new();
-                message_ids
-                    .iter()
-                    .copied()
-                    .filter(|id| seen.insert(*id))
-                    .collect()
-            };
-            let mut cache: HashMap<i32, Message> = HashMap::with_capacity(uniq_ids.len());
-            for chunk in uniq_ids.chunks(100) {
-                match client.get_messages_by_id(peer_ref, chunk).await {
-                    Ok(messages) => {
-                        for m in messages.into_iter().flatten() {
-                            cache.insert(m.id(), m);
-                        }
-                    }
-                    Err(e) => error!("获取消息失败: {e}"),
-                }
-            }
-
-            for chunk in message_ids.chunks(10) {
-                let medias: Vec<InputMedia> = chunk
-                    .iter()
-                    .filter_map(|id| cache.get(id))
-                    .map(build_input_media)
-                    .collect();
-                if medias.is_empty() {
-                    continue;
-                }
-
-                let n = medias.len();
-                match client.send_album(peer_ref, medias).await {
-                    Ok(_) => {
-                        success_count += n;
-                    }
-                    Err(e) => error!("发送合并媒体失败: {e}"),
-                }
-            }
+            let success_count = send_message_ids(&client, peer_ref, &message_ids).await;
 
             let text = format!("已成功合并 {} / {} 条媒体", success_count, want);
             if let Err(e) = callback.answer().respond(text).await {
@@ -243,4 +114,65 @@ fn build_input_media(m: &Message) -> InputMedia {
         input = input.fmt_entities(fmt_entities.clone());
     }
     input
+}
+
+async fn handle_direct_merge(callback: CallbackQuery, client: Client, message_ids: &[i32]) {
+    let peer_id = callback.peer_id();
+    let peer_ref = callback
+        .peer_ref()
+        .await
+        .unwrap_or(None)
+        .unwrap_or_else(|| peer_id.to_ambient_ref());
+    let want = message_ids.len();
+    let success_count = send_message_ids(&client, peer_ref, message_ids).await;
+
+    let text = format!("已成功合并 {} / {} 条媒体", success_count, want);
+    if let Err(e) = callback.answer().respond(text).await {
+        error!("回复失败按钮回调失败: {e}");
+    }
+}
+
+async fn send_message_ids(client: &Client, peer_ref: PeerRef, message_ids: &[i32]) -> usize {
+    let mut success_count: usize = 0;
+
+    let uniq_ids: Vec<i32> = {
+        let mut seen = HashSet::new();
+        message_ids
+            .iter()
+            .copied()
+            .filter(|id| seen.insert(*id))
+            .collect()
+    };
+    let mut cache: HashMap<i32, Message> = HashMap::with_capacity(uniq_ids.len());
+    for chunk in uniq_ids.chunks(100) {
+        match client.get_messages_by_id(peer_ref, chunk).await {
+            Ok(messages) => {
+                for m in messages.into_iter().flatten() {
+                    cache.insert(m.id(), m);
+                }
+            }
+            Err(e) => error!("获取消息失败: {e}"),
+        }
+    }
+
+    for chunk in message_ids.chunks(10) {
+        let medias: Vec<InputMedia> = chunk
+            .iter()
+            .filter_map(|id| cache.get(id))
+            .map(build_input_media)
+            .collect();
+        if medias.is_empty() {
+            continue;
+        }
+
+        let n = medias.len();
+        match client.send_album(peer_ref, medias).await {
+            Ok(_) => {
+                success_count += n;
+            }
+            Err(e) => error!("发送合并媒体失败: {e}"),
+        }
+    }
+
+    success_count
 }

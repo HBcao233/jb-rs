@@ -119,35 +119,3 @@ pub fn on_new_message(_args: TokenStream, item: TokenStream) -> TokenStream {
     }
     .into()
 }
-
-#[proc_macro_attribute]
-pub fn on_grouped_messages(_args: TokenStream, item: TokenStream) -> TokenStream {
-    let ItemFn {
-        attrs,
-        vis,
-        mut sig,
-        block,
-        modifiers: _,
-    } = parse_macro_input!(item as ItemFn);
-
-    if sig.asyncness.is_none() {
-        return syn::Error::new_spanned(
-            &sig.fn_token,
-            "#[on_grouped_messages] must be used to `async fn`",
-        )
-        .to_compile_error()
-        .into();
-    }
-
-    sig.asyncness = None;
-    sig.output = parse_quote!(-> crate::core::update::HandlerResult);
-
-    quote! {
-        #(#attrs)*
-        #[::linkme::distributed_slice(crate::core::update::GROUPED_MESSAGES_HANDLERS)]
-        #vis #sig {
-            Box::pin(async move #block)
-        }
-    }
-    .into()
-}

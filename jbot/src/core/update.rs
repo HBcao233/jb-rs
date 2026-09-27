@@ -11,7 +11,6 @@ use crate::database as db;
 pub type HandlerResult = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
 type Handler = fn(client: Client, update: Update, session: Arc<SqliteSession>) -> HandlerResult;
 type NewMessageHandler = fn(client: Client, message: Arc<Message>) -> HandlerResult;
-type GroupedMessagesHandler = fn(client: Client, message: Vec<Arc<Message>>) -> HandlerResult;
 
 #[linkme::distributed_slice]
 pub static SETUPS: [fn() -> anyhow::Result<()>];
@@ -24,9 +23,6 @@ pub static HANDLERS: [Handler];
 
 #[linkme::distributed_slice]
 pub static NEW_MESSAGE_HANDLERS: [NewMessageHandler];
-
-#[linkme::distributed_slice]
-pub static GROUPED_MESSAGES_HANDLERS: [GroupedMessagesHandler];
 
 pub(crate) async fn handle_update(client: Client, update: Update, session: Arc<SqliteSession>) {
     for handler in HANDLERS {

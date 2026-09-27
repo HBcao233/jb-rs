@@ -6,7 +6,7 @@ mod douyin;
 pub mod group_config;
 mod help;
 #[cfg(feature = "merge")]
-mod merge;
+pub mod merge;
 #[cfg(feature = "roll")]
 mod roll;
 #[cfg(feature = "twitter")]
