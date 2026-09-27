@@ -103,19 +103,6 @@ async fn handle_finish_merge(callback: CallbackQuery, client: Client) {
     }
 }
 
-fn build_input_media(m: &Message) -> InputMedia {
-    let mut input = InputMedia::new().caption(m.text());
-    if let Some(media) = m.media() {
-        if let Some(raw) = media.to_raw_input_media() {
-            input = input.media(raw);
-        }
-    }
-    if let Some(fmt_entities) = m.fmt_entities() {
-        input = input.fmt_entities(fmt_entities.clone());
-    }
-    input
-}
-
 async fn handle_direct_merge(callback: CallbackQuery, client: Client, message_ids: &[i32]) {
     let peer_id = callback.peer_id();
     let peer_ref = callback
@@ -175,4 +162,17 @@ async fn send_message_ids(client: &Client, peer_ref: PeerRef, message_ids: &[i32
     }
 
     success_count
+}
+
+fn build_input_media(m: &Message) -> InputMedia {
+    let mut input = InputMedia::new().caption(m.text());
+    if let Some(media) = m.media() {
+        if let Some(raw) = media.to_raw_input_media() {
+            input = input.media(raw);
+        }
+    }
+    if let Some(fmt_entities) = m.fmt_entities() {
+        input = input.fmt_entities(fmt_entities.clone());
+    }
+    input
 }

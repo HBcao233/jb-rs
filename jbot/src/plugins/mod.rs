@@ -9,6 +9,8 @@ mod help;
 pub mod merge;
 #[cfg(feature = "roll")]
 mod roll;
+#[cfg(feature = "spoiler")]
+pub mod spoiler;
 #[cfg(feature = "twitter")]
 mod twitter;
 #[cfg(feature = "verify")]

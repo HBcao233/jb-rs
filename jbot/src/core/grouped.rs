@@ -36,7 +36,25 @@ async fn grouped_messages_handler(client: Client, messages: Vec<Arc<Message>>) {
 
     let text = format!("收到 {} 条媒体", messages.len());
     let message_ids: Vec<i32> = messages.iter().map(|m| m.id()).collect();
+    let media = message.media().unwrap();
+
     let mut buttons: Vec<Vec<Button>> = Vec::new();
+
+    #[cfg(feature = "spoiler")]
+    {
+        use grammers_client::media::Media;
+
+        let spoilered = match media {
+            Media::Photo(p) => p.is_spoiler(),
+            Media::Document(d) => d.is_spoiler(),
+            _ => false,
+        };
+        buttons.push(vec![crate::plugins::spoiler::SwitchSpoilerButton::new(
+            false,
+            spoilered,
+            &message_ids,
+        )]);
+    }
 
     #[cfg(feature = "merge")]
     buttons.push(vec![

@@ -19,6 +19,7 @@ core_curl = [
 
 roll = ["dep:rand"]
 merge = []
+spoiler = []
 group_config = []
 verify = ["group_config", "dep:rand"]
 
