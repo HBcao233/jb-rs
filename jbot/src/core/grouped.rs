@@ -36,8 +36,10 @@ async fn grouped_messages_handler(client: Client, messages: Vec<Arc<Message>>) {
 
     let text = format!("收到 {} 条媒体", messages.len());
     let message_ids: Vec<i32> = messages.iter().map(|m| m.id()).collect();
+    #[allow(unused_variables)]
     let media = message.media().unwrap();
 
+    #[allow(unused_mut)]
     let mut buttons: Vec<Vec<Button>> = Vec::new();
 
     #[cfg(feature = "spoiler")]

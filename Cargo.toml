@@ -8,7 +8,7 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-tokio = { version = "1.52.3", default-features = false, features = ["rt"] }
+tokio = { version = "1.52.3", default-features = false, features = ["rt", "rt-multi-thread"] }
 tracing = { version = "0.1.44", default-features = false }
 jiff = { version = "0.2.37", default-features = false, features = ["std"] }
 wreq = { version = "0.16.1", features = ["query", "form", "json", "stream"] }

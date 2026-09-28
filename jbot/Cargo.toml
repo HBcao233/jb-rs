@@ -46,6 +46,11 @@ twitter = [
     "dep:serde",
     "dep:serde_json",
 ]
+youtube = [
+    "core_curl",
+    "dep:regex",
+    "dep:jb-core",
+]
 
 [dependencies]
 jbot-macro = { path = "../jbot-macro" }

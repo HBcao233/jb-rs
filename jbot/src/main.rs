@@ -168,7 +168,7 @@ fn main() {
 
     let guard = core::log::init_log().unwrap();
 
-    runtime::Builder::new_current_thread()
+    runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .unwrap()
