@@ -107,8 +107,7 @@ async fn async_main() {
                 dirty = true;
                 match result {
                     Ok(update) => {
-                        let handle = client.clone();
-                        handler_tasks.spawn(core::update::handle_update(handle, update, Arc::clone(&session)));
+                        handler_tasks.spawn(core::update::handle_update(client.clone(), update, Arc::clone(&session)));
                     }
                     Err(e) => {
                         error!("获取更新失败: {e}");
@@ -171,7 +170,7 @@ fn main() {
     runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .unwrap()
+        .expect("Failed building the Runtime")
         .block_on(async_main());
 
     drop(guard);
