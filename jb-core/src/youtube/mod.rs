@@ -18,13 +18,16 @@ async fn get_ytcfg(client: &Client) -> Ytcfg {
         .header("X-YouTube-Client-Version", CLIENT_VERSION)
         .header(header::ORIGIN, "https://www.youtube.com")
         .send()
-        .await else {
+        .await
+    else {
         return Ytcfg::default();
     };
     let Ok(text) = response.text().await else {
         return Ytcfg::default();
     };
-    if let Some(pos1) = text.find("ytcfg.set({") && let Some(pos2) = text.find("}); "){
+    if let Some(pos1) = text.find("ytcfg.set({")
+        && let Some(pos2) = text.find("}); ")
+    {
         match text.get((pos1 + 10)..(pos2 + 1)) {
             Some(cfg) => serde_json::from_str(cfg).unwrap_or_default(),
             None => Ytcfg::default(),
