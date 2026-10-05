@@ -1,8 +1,9 @@
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::process::{ExitStatus, Stdio};
+use std::time::Duration;
 
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{HumanDuration, ProgressBar, ProgressState, ProgressStyle};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
@@ -64,9 +65,24 @@ impl FFmpeg {
 
         bar.set_style(
             ProgressStyle::default_bar()
-                .template(" [{wide_bar}] {len}/{pos} ({percent}%)")
+                .template(" [{wide_bar}] {pos_dur}/{len_dur} ({percent}%)")
                 .unwrap()
-                .progress_chars("=> "),
+                .progress_chars("=> ")
+                .with_key(
+                    "pos_dur",
+                    |state: &ProgressState, w: &mut dyn std::fmt::Write| {
+                        write!(w, "{:#}", HumanDuration(Duration::from_millis(state.pos())))
+                            .unwrap()
+                    },
+                )
+                .with_key(
+                    "len_dur",
+                    |state: &ProgressState, w: &mut dyn std::fmt::Write| {
+                        if let Some(len) = state.len() {
+                            write!(w, "{:#}", HumanDuration(Duration::from_millis(len))).unwrap()
+                        }
+                    },
+                ),
         );
         while let Some(line) = lines.next_line().await? {
             if total_ms.is_none() {
@@ -86,6 +102,7 @@ impl FFmpeg {
                 }
             }
         }
+        bar.finish();
 
         child.wait().await
     }
