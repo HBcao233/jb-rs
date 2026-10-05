@@ -12,6 +12,7 @@ pub struct AwemeDetail {
     // pub aweme_type: i32,
     pub video: Option<Video>,
     pub images: Option<Vec<Image>>,
+    pub music: Option<Music>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -46,6 +47,15 @@ pub struct Addr {
 pub struct Image {
     pub url_list: Vec<String>,
     pub video: Option<Video>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Music {
+    pub play_url: Addr,
+    pub duration: i32,
+    pub cover_thumb: Addr,
+    pub title: String,
+    pub author: String,
 }
 
 #[derive(Debug, thiserror::Error)]

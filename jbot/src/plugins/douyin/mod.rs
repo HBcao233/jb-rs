@@ -401,6 +401,117 @@ async fn send_douyin(
         }
 
         mid.delete().await?;
+        deleted = true;
+    }
+
+    if let Some(music) = detail.music {
+        if deleted {
+            mid = Arc::new(
+                client
+                    .send_message(
+                        peer_ref,
+                        InputMessage::new()
+                            .text(format!("{prefix} 请等待..."))
+                            .reply_to(Some(msg_id)),
+                    )
+                    .await?,
+            );
+        }
+
+        let key = format!("douyin_music_{aid}");
+        let thumb_url = music.cover_thumb.url_list.last().unwrap();
+        let thumb_name = format!("{key}_thumb.jpg");
+        let thumb = match stream_download(&down_client, thumb_url, &thumb_name, &headers).await {
+            Ok(path) => match client.upload_file(path).await {
+                Ok(uploaded) => Some(uploaded.raw),
+                Err(e) => {
+                    warn!("上传 {thumb_name} 失败: {e}");
+                    None
+                }
+            },
+            Err(e) => {
+                warn!("下载 {thumb_name} 失败: {e}");
+                None
+            }
+        };
+
+        let url = music.play_url.url_list.last().unwrap();
+        let name = format!("{key}.mp3");
+
+        let p = format!("{prefix} 下载音乐中...");
+        info!("{p}");
+        let _ = mid.edit(p).await;
+        let path = match stream_download(&down_client, url, &name, &headers).await {
+            Ok(path) => path,
+            Err(e) => {
+                let tip = format!("{prefix} 音乐下载失败: {e}");
+                error!("{tip}");
+                mid.edit(tip).await?;
+                return Ok(());
+            }
+        };
+
+        let p = format!("{prefix} 上传音乐中...");
+        info!("{p}");
+        let _ = mid.edit(p).await;
+        let uploaded = match client.upload_file(path).await {
+            Ok(u) => u,
+            Err(_) => {
+                let p = format!("{prefix} 上传音乐失败");
+                error!("{p}");
+                mid.edit(p).await?;
+                return Ok(());
+            }
+        };
+
+        let media = tl::types::InputMediaUploadedDocument {
+            nosound_video: false,
+            force_file: false,
+            spoiler: false,
+            file: uploaded.raw,
+            thumb,
+            mime_type: "audio/mp3".to_string(),
+            attributes: vec![
+                tl::types::DocumentAttributeFilename { file_name: name }.into(),
+                tl::types::DocumentAttributeAudio {
+                    voice: false,
+                    duration: music.duration,
+                    title: Some(music.title),
+                    performer: Some(music.author),
+                    waveform: None,
+                }
+                .into(),
+            ],
+            stickers: None,
+            ttl_seconds: None,
+            video_cover: None,
+            video_timestamp: None,
+        };
+
+        match client
+            .send_message(
+                peer_ref,
+                InputMessage::new()
+                    .html(msg)
+                    .media(media)
+                    .reply_to(Some(msg_id)),
+            )
+            .await
+        {
+            Ok(message) => match db::insert_from_message(&message, Some(&key)).await {
+                Ok(_) => {
+                    info!("添加缓存音频: {key}");
+                }
+                Err(e) => {
+                    error!("添加缓存音频 {key} 失败: {e}");
+                }
+            },
+            Err(e) => {
+                error!("消息发送失败: {e}");
+            }
+        }
+
+        mid.delete().await?;
     }
 
     Ok(())
