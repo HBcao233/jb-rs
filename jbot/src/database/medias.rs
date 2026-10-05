@@ -4,7 +4,16 @@ use grammers_tl_types as tl;
 use libsql::{Builder, Connection};
 use libsql::{named_params, params};
 use tokio::fs;
+use tokio::sync::{Mutex, OnceCell};
 use tracing::error;
+
+static DB: OnceCell<Database> = OnceCell::const_new();
+static WRITE_LOCK: Mutex<()> = Mutex::const_new(());
+
+async fn get_db() -> &'static Database {
+    DB.get_or_init(|| async { Database::open().await.expect("open db") })
+        .await
+}
 
 const VERSION: i64 = 1;
 
@@ -136,6 +145,8 @@ impl Database {
 }
 
 pub async fn insert_from_message(message: &Message, key: Option<&str>) -> libsql::Result<()> {
+    let guard = WRITE_LOCK.lock().await;
+
     let peer_id = message.peer_id().bot_api_dialog_id().unwrap();
     let message_id = message.id();
     let grouped_id = message.grouped_id();
@@ -177,7 +188,7 @@ pub async fn insert_from_message(message: &Message, key: Option<&str>) -> libsql
         return Ok(());
     };
 
-    let db = Database::open().await?;
+    let db = get_db().await;
     let transaction = db.begin_transaction().await?;
     let stmt = transaction
         .prepare("INSERT INTO medias (peer_id, message_id, grouped_id, media_type, file_id, access_hash, file_reference, key)
@@ -201,6 +212,7 @@ pub async fn insert_from_message(message: &Message, key: Option<&str>) -> libsql
     .await?;
     transaction.commit().await?;
 
+    drop(guard);
     Ok(())
 }
 
@@ -225,7 +237,7 @@ fn parse_media_type(document: &Document) -> Option<MediaType> {
 }
 
 pub async fn get_media(key: &str) -> libsql::Result<Option<tl::enums::InputMedia>> {
-    let db = Database::open().await?;
+    let db = get_db().await;
     let map_row = |row: libsql::Row| {
         let media_type: MediaType = (row.get::<u32>(4)? as u8).try_into().unwrap();
         let file_id = row.get::<i64>(5)?;
