@@ -7,6 +7,7 @@ use std::io;
 use std::process::exit;
 
 use tokio::runtime;
+use tracing::trace;
 
 use crate::core::{align_left, padding_left};
 use crate::core::{curl, ffmpeg};
@@ -72,7 +73,9 @@ async fn async_main() {
                                 }
                             }
                         };
-                        let cookies = parse_cookies(&cookies);
+                        let cookies = cookies.trim();
+                        let cookies = parse_cookies(cookies);
+                        trace!(?cookies, "使用 cookies");
                         options.cookies = cookies;
                     }
                     _ => {
