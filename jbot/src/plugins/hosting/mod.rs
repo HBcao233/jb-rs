@@ -83,10 +83,12 @@ async fn upload_picgo(
 
 async fn upload_postimage(client: &Client, path: impl AsRef<Path>) -> Result<String, UploadError> {
     let now = Timestamp::now().as_millisecond();
-    let mut rng = rand::rng();
-    let random_digits: String = (0..16)
-        .map(|_| rng.random_range(0..10).to_string())
-        .collect();
+    let random_digits: String = {
+        let mut rng = rand::rng();
+        (0..16)
+            .map(|_| rng.random_range(0..10).to_string())
+            .collect()
+    };
     let session = format!("{}.{}", now, random_digits);
 
     let form = Form::new()

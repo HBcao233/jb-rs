@@ -1135,6 +1135,7 @@ dependencies = [
  "libsql",
  "linkme",
  "md5",
+ "percent-encoding",
  "rand",
  "regex",
  "serde",

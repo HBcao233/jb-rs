@@ -5,7 +5,8 @@ mod plugins;
 pub mod utils;
 
 use std::env;
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use grammers_client::Client;
@@ -21,6 +22,16 @@ pub use crate::core::curl;
 pub use crate::core::ffmpeg::{self, FFmpeg};
 pub use crate::core::progress;
 pub use crate::jbot_macro::{on_interval, on_new_message, on_setup, on_update};
+
+pub fn current_dir() -> &'static PathBuf {
+    static CURRENT_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+    CURRENT_DIR.get_or_init(|| env::current_dir().expect("无法获取当前工作目录"))
+}
+
+pub fn cache_dir() -> PathBuf {
+    current_dir().join("cache")
+}
 
 // debug 模式不 catch_up 追赶更新
 const IS_DEBUG: bool = cfg!(debug_assertions);

@@ -11,9 +11,6 @@ pub enum UploadError {
     #[error("请求失败")]
     Http(#[from] wreq::Error),
 
-    #[error("状态码错误: {0}")]
-    Status(u16),
-
     #[error("JSON 解析失败: {0}")]
     Json(#[from] serde_json::Error),
 

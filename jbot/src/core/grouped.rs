@@ -64,6 +64,11 @@ async fn grouped_messages_handler(client: Client, messages: Vec<Arc<Message>>) {
         crate::plugins::merge::DirectMergeButton::new(&message_ids),
     ]);
 
+    #[cfg(feature = "soutu")]
+    {
+        buttons.push(vec![crate::plugins::soutu::SoutuButton::new(message.id())]);
+    }
+
     if buttons.is_empty() {
         return;
     }

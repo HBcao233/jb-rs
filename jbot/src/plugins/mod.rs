@@ -29,3 +29,6 @@ mod youtube;
 
 #[cfg(feature = "hosting")]
 pub mod hosting;
+
+#[cfg(feature = "soutu")]
+pub mod soutu;
