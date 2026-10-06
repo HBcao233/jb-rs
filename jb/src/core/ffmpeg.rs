@@ -202,12 +202,11 @@ mod tests {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let path = path.parent().unwrap();
         let status = FFmpeg::new()
-            .overwrite()
-            .input(path.join("target/input.mp4"))
-            .output(path.join("target/output.mp4"))
-            .run_with_progress(|current, total| {
-                println!("{} / {:?}", current, total);
-            })
+            .arg("-y")
+            .arg("-i")
+            .arg(path.join("target/input.mp4"))
+            .arg(path.join("target/output.mp4"))
+            .run()
             .await
             .unwrap();
         let _ = dbg!(status);
