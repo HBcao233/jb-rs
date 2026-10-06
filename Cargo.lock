@@ -2905,6 +2905,7 @@ dependencies = [
  "ipnet",
  "libc",
  "lru",
+ "mime_guess",
  "percent-encoding",
  "pin-project-lite",
  "serde",

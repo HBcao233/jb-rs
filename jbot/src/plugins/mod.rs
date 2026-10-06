@@ -26,3 +26,6 @@ mod verify;
 
 #[cfg(feature = "youtube")]
 mod youtube;
+
+#[cfg(feature = "hosting")]
+pub mod hosting;
