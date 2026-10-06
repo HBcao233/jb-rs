@@ -25,7 +25,6 @@ verify = ["group_config", "dep:rand"]
 hosting = [
     "core_curl",
     "dep:serde",
-    "dep:serde_json",
     "dep:thiserror",
     "dep:rand",
 ]

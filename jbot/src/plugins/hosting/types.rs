@@ -11,9 +11,6 @@ pub enum UploadError {
     #[error("请求失败")]
     Http(#[from] wreq::Error),
 
-    #[error("JSON 解析失败: {0}")]
-    Json(#[from] serde_json::Error),
-
     #[error("API 错误: {0}")]
     Api(String),
 }

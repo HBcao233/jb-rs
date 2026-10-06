@@ -101,9 +101,7 @@ async fn upload_postimage(client: &Client, path: impl AsRef<Path>) -> Result<Str
         .await?;
     let response = client.post(POSTIMAGE_HOST).multipart(form).send().await?;
 
-    let res: serde_json::Value = response.json().await?;
-    dbg!(&res);
-    let res: PostimageResult = serde_json::from_value(res)?;
+    let res: PostimageResult = response.json().await?;
     if let Some(error) = res.error {
         return Err(UploadError::Api(error.message));
     }
