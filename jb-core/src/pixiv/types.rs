@@ -68,7 +68,7 @@ pub struct IllustDetails {
     pub comment: Option<String>,
     pub comment_html: Option<String>,
     pub upload_timestamp: i64,
-    pub ugoira_meta: Option<UgoiraMeta>,
+    pub ugoira_meta: Option<LessUgoiraMeta>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -86,4 +86,23 @@ pub struct Manga {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct UgoiraMeta {}
+pub struct LessUgoiraMeta {
+    pub mime_type: String,
+    pub src: String,
+    pub frames: Vec<Frame>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Frame {
+    pub delay: u32,
+    pub file: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UgoiraMeta {
+    pub mime_type: String,
+    pub src: String,
+    #[serde(rename = "originalSrc")]
+    pub original_src: String,
+    pub frames: Vec<Frame>,
+}

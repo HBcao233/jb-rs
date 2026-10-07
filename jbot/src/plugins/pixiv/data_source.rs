@@ -1,7 +1,12 @@
-use jb_core::pixiv::fetch_info;
-use jb_core::pixiv::types::{PixivDetails, PixivError};
+use std::path::PathBuf;
+use std::process::ExitStatus;
+
+use jb_core::pixiv::types::{Frame, PixivDetails, PixivError, UgoiraMeta};
+use jb_core::pixiv::{fetch_info, fetch_ugoira_meta};
 use regex::regex;
 use tokio::fs;
+use tokio::io::{self, AsyncWriteExt};
+use tokio::process::Command;
 use tracing::{error, warn};
 use wreq::Client;
 
@@ -112,4 +117,67 @@ fn truncate_comment(comment: &str, max_comment_length: usize) -> String {
 
     comment.push_str("\n......");
     comment
+}
+
+pub async fn get_ugoira_meta(client: &Client, pid: &str) -> Result<UgoiraMeta, PixivError> {
+    let cache_dir = crate::cache_dir().join("pixiv");
+    if let Err(e) = fs::create_dir_all(&cache_dir).await {
+        error!("缓存文件夹创建失败: {e:?}");
+        return Err(PixivError::Io(e));
+    }
+
+    let mut cookies = Vec::new();
+    if let Some(s) = super::PHPSESSID.get().unwrap() {
+        cookies.push(("PHPSESSID", s.to_string()));
+    }
+
+    let name = format!("{pid}_ugoira_meta.json");
+    let cache_file = cache_dir.join(name);
+    fetch_ugoira_meta(client, pid, cookies, &cache_file).await
+}
+
+pub async fn unzip_ugoira(input: &PathBuf, output: &PathBuf) -> io::Result<ExitStatus> {
+    let ext = input.extension();
+    let mut child = match ext.and_then(|s| s.to_str()) {
+        Some("zip") => Command::new("unzip")
+            .arg("-d")
+            .arg(output)
+            .arg(input)
+            .kill_on_drop(true)
+            .spawn()?,
+        Some("tar") | Some("gz") => Command::new("unzip")
+            .arg("xf")
+            .arg("-C")
+            .arg(output)
+            .arg(input)
+            .kill_on_drop(true)
+            .spawn()?,
+        _ => {
+            return Err(io::Error::other("暂不支持解压的类型"));
+        }
+    };
+    child.wait().await
+}
+
+pub async fn create_ugoira_frames_txt(
+    frames: &[Frame],
+    ugoira_dir: &PathBuf,
+    frames_txt: &PathBuf,
+) -> Result<u32, io::Error> {
+    let mut duration = 0;
+    let mut output = fs::File::create(frames_txt).await?;
+    for frame in frames {
+        let file = ugoira_dir.join(&frame.file);
+        let abs_path = fs::canonicalize(&file).await?;
+        duration += frame.delay;
+        let delay = frame.delay as f64 / 1000.0;
+        output
+            .write_all(format!("file '{}'\n", abs_path.to_string_lossy()).as_bytes())
+            .await?;
+        output
+            .write_all(format!("duration {delay:.3}\n").as_bytes())
+            .await?;
+    }
+    output.flush().await?;
+    Ok(duration)
 }

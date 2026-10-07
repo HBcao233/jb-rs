@@ -8,11 +8,15 @@ use grammers_client::Client;
 use grammers_client::media::InputMedia;
 use grammers_client::message::{InputMessage, Message};
 use grammers_session::types::{PeerKind, PeerRef};
-use jb_core::pixiv::types::Manga;
+use grammers_tl_types as tl;
+use jb_core::pixiv::types::{Manga, UgoiraMeta};
 use regex::regex;
+use tokio::{fs, io};
 use tracing::{error, info, warn};
 
-use self::data_source::{get_info, parse_msg};
+use self::data_source::{
+    create_ugoira_frames_txt, get_info, get_ugoira_meta, parse_msg, unzip_ugoira,
+};
 use crate::curl::stream_download;
 use crate::database as db;
 
@@ -117,6 +121,179 @@ async fn send_pixiv(
     let msg = parse_msg(&info);
 
     let headers = [("referer", format!("https://www.pixiv.net/artworks/{pid}"))];
+
+    if info.illust_details.r#type == "2" {
+        let key = format!("{pid}_ugoira");
+        let media = if let Some(m) = db::get_media(&key).await? {
+            info!("使用已发送过的媒体: {key}");
+            m
+        } else {
+            let _ = mid.edit(format!("{prefix} 下载动图中...")).await;
+
+            let UgoiraMeta {
+                original_src,
+                frames,
+                ..
+            } = get_ugoira_meta(&wreq_client, pid).await?;
+            let ext = Path::new(&original_src)
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default();
+            let name = format!("{pid}_ugoira.{ext}");
+            let path = match stream_download(&wreq_client, &original_src, &name, &headers).await {
+                Ok(path) => path,
+                Err(e) => {
+                    let tip = format!("{prefix} 动图下载失败: {e}");
+                    error!("{tip}");
+                    mid.edit(tip).await?;
+                    return Ok(());
+                }
+            };
+
+            let pixiv_cache_dir = crate::cache_dir().join("pixiv/");
+
+            let ugoira_dir = pixiv_cache_dir.join(format!("{pid}_ugoira"));
+            let exist = match fs::metadata(&ugoira_dir).await {
+                Ok(meta) => meta.is_dir(),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => false,
+                Err(e) => {
+                    error!("获取文件夹信息失败: {e}");
+                    mid.edit("获取文件夹信息失败").await?;
+                    return Ok(());
+                }
+            };
+            if !exist {
+                if let Err(e) = fs::create_dir(&ugoira_dir).await {
+                    error!("解压目标文件夹创建失败: {e}");
+                    mid.edit(format!("{prefix} 解压目标文件夹创建失败")).await?;
+                    return Ok(());
+                }
+                if let Err(e) = unzip_ugoira(&path, &ugoira_dir).await {
+                    error!("{prefix} 解压失败: {e}");
+                    mid.edit(format!("{prefix} 解压失败")).await?;
+                    return Ok(());
+                }
+            }
+
+            let _ = mid.edit(format!("{prefix} 处理中...")).await;
+            let frames_txt = pixiv_cache_dir.join(format!("{pid}_ugoira_frames.txt"));
+            let duration = match create_ugoira_frames_txt(&frames, &ugoira_dir, &frames_txt).await {
+                Ok(duration) => duration,
+                Err(e) => {
+                    error!("{prefix} 创建 frames 文件失败: {e}");
+                    mid.edit(format!("{prefix} 创建 frames 文件失败")).await?;
+                    return Ok(());
+                }
+            };
+            let duration = duration as f64 / 1000.0;
+
+            let target = pixiv_cache_dir.join(format!("{pid}_ugoira.mp4"));
+            match crate::FFmpeg::new()
+                .arg("-f")
+                .arg("concat")
+                .arg("-safe")
+                .arg("0")
+                .arg("-i")
+                .arg(frames_txt)
+                .arg("-c:v")
+                .arg("h264")
+                .arg("-vf")
+                .arg("pad=ceil(iw/2)*2:ceil(ih/2)*2")
+                .arg("-pix_fmt")
+                .arg("yuv420p")
+                .arg("-movflags")
+                .arg("+faststart")
+                .arg("-y")
+                .arg(&target)
+                .run()
+                .await
+            {
+                Ok(status) => {
+                    if !status.success() {
+                        error!("合成动图失败");
+                        mid.edit("{prefix} 合成动图失败").await?;
+                        return Ok(());
+                    }
+                }
+                Err(e) => {
+                    error!("合成动图失败: {e}");
+                    mid.edit("{prefix} 合成动图失败").await?;
+                    return Ok(());
+                }
+            }
+
+            let _ = mid.edit(format!("{prefix} 上传中...")).await;
+            let frame = ugoira_dir.join(&frames.first().unwrap().file);
+            let thumb = match client.upload_file(frame).await {
+                Ok(uploaded) => Some(uploaded.raw),
+                Err(_) => None,
+            };
+            let uploaded = match client.upload_file(target).await {
+                Ok(uploaded) => uploaded,
+                Err(e) => {
+                    error!("上传失败: {e}");
+                    mid.edit(format!("{prefix} 上传失败")).await?;
+                    return Ok(());
+                }
+            };
+            let w = info.illust_details.width.parse().unwrap_or(200);
+            let h = info.illust_details.height.parse().unwrap_or(200);
+
+            tl::types::InputMediaUploadedDocument {
+                nosound_video: true,
+                force_file: false,
+                spoiler: false,
+                file: uploaded.raw,
+                thumb,
+                mime_type: "video/mp4".to_string(),
+                attributes: vec![
+                    tl::types::DocumentAttributeFilename { file_name: name }.into(),
+                    tl::types::DocumentAttributeVideo {
+                        round_message: false,
+                        supports_streaming: true,
+                        nosound: false,
+                        duration,
+                        w,
+                        h,
+                        preload_prefix_size: None,
+                        video_start_ts: None,
+                        video_codec: None,
+                    }
+                    .into(),
+                ],
+                stickers: None,
+                ttl_seconds: None,
+                video_cover: None,
+                video_timestamp: None,
+            }
+            .into()
+        };
+        match client
+            .send_message(
+                peer_ref,
+                InputMessage::new().html(msg).media(media).reply_to(msg_id),
+            )
+            .await
+        {
+            Ok(message) => match db::insert_from_message(&message, Some(&key)).await {
+                Ok(_) => {
+                    info!("添加缓存媒体: {key}");
+                }
+                Err(e) => {
+                    error!("添加缓存媒体 {key} 失败: {e}");
+                }
+            },
+            Err(e) => {
+                error!("{prefix} 发送消息失败: {e}");
+                mid.edit(format!("{prefix} 发送消息失败")).await?;
+                return Ok(());
+            }
+        }
+
+        mid.delete().await?;
+        return Ok(());
+    }
+
     let manga_a = if let Some(manga_a) = info.illust_details.manga_a {
         manga_a
     } else {

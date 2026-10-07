@@ -6,33 +6,32 @@ use tokio::fs;
 use tracing::{error, info};
 use wreq::{Client, StatusCode, header};
 
-use self::types::{DETAIL_HOST, PixivDetails, PixivError, PixivResult};
+use self::types::{DETAIL_HOST, PixivDetails, PixivError, PixivResult, UgoiraMeta};
 use crate::encode_cookies;
 
 const LANG: &str = "zh";
 const VERSION: &str = "55d9ace1031cc8b070a23db9df6c67552bd2ede6";
 
-pub async fn fetch_info<K, V>(
+async fn fetch<T, K, V>(
     client: &Client,
     pid: &str,
+    url: &str,
+    query: &[(&str, String)],
     cookies: impl IntoIterator<Item = (K, V)>,
     cache_file: &PathBuf,
-) -> Result<PixivDetails, PixivError>
+) -> Result<T, PixivError>
 where
+    T: serde::de::DeserializeOwned,
     K: AsRef<str>,
     V: AsRef<str>,
 {
-    let query = [
-        ("illust_id", pid.to_string()),
-        ("ref", format!("https://www.pixiv.net/artworks/{pid}")),
-        ("lang", LANG.to_string()),
-        ("version", VERSION.to_string()),
-    ];
+    let referer = format!("https://www.pixiv.net/artworks/{pid}");
     let cookie = encode_cookies(cookies);
     let response = client
-        .get(DETAIL_HOST)
+        .get(url)
+        .header(header::REFERER, referer)
         .header(header::COOKIE, cookie)
-        .query(&query)
+        .query(query)
         .send()
         .await?;
     let status = response.status();
@@ -59,4 +58,39 @@ where
     }
 
     Ok(serde_json::from_value(body)?)
+}
+
+pub async fn fetch_info<K, V>(
+    client: &Client,
+    pid: &str,
+    cookies: impl IntoIterator<Item = (K, V)>,
+    cache_file: &PathBuf,
+) -> Result<PixivDetails, PixivError>
+where
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
+    let referer = format!("https://www.pixiv.net/artworks/{pid}");
+    let query = [
+        ("illust_id", pid.to_string()),
+        ("ref", referer),
+        ("lang", LANG.to_string()),
+        ("version", VERSION.to_string()),
+    ];
+
+    fetch(client, pid, DETAIL_HOST, &query, cookies, cache_file).await
+}
+
+pub async fn fetch_ugoira_meta<K, V>(
+    client: &Client,
+    pid: &str,
+    cookies: impl IntoIterator<Item = (K, V)>,
+    cache_file: &PathBuf,
+) -> Result<UgoiraMeta, PixivError>
+where
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
+    let url = format!("https://www.pixiv.net/ajax/illust/{pid}/ugoira_meta");
+    fetch(client, pid, &url, &[], cookies, cache_file).await
 }
