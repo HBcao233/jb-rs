@@ -45,6 +45,8 @@ pub struct AuthorDetails {
 
 #[derive(Debug, Deserialize)]
 pub struct IllustDetails {
+    // mask_reason: "login_only"
+    pub mask_reason: Option<String>,
     pub id: String,
     pub r#type: String,
     // ai_type == 1: 非AI, 2: AI生成
@@ -55,11 +57,11 @@ pub struct IllustDetails {
     pub width: String,
     pub height: String,
     pub manga_a: Option<Vec<Manga>>,
-    pub url: String,
-    pub url_big: String,
-    pub url_placeholder: String,
-    pub url_s: String,
-    pub url_ss: String,
+    pub url: Option<String>,
+    pub url_big: Option<String>,
+    pub url_placeholder: Option<String>,
+    pub url_s: Option<String>,
+    pub url_ss: Option<String>,
     pub user_id: String,
     pub author_details: AuthorDetails,
     pub title: String,

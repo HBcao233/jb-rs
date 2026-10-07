@@ -72,7 +72,17 @@ async fn handler(client: Client, message: Arc<Message>) {
     }
 
     if !matched && starts_with_command {
-        if let Err(e) = message.reply(HELP).await {
+        if let Some(caps) = regex!(r"(\d{5,12})").captures(&text) {
+            let (_, [pid]) = caps.extract();
+            info!("pid: {pid}");
+
+            matched = true;
+            if let Err(e) = send_pixiv(client.clone(), peer_ref, Some(msg_id), pid).await {
+                error!(e, "send_pixiv failed");
+            }
+        }
+
+        if !matched && let Err(e) = message.reply(HELP).await {
             error!("消息发送失败: {e}")
         }
     }
@@ -110,10 +120,11 @@ async fn send_pixiv(
     let manga_a = if let Some(manga_a) = info.illust_details.manga_a {
         manga_a
     } else {
-        vec![Manga {
-            page: 0,
-            url_big: info.illust_details.url_big,
-        }]
+        if let Some(url_big) = info.illust_details.url_big {
+            vec![Manga { page: 0, url_big }]
+        } else {
+            Vec::new()
+        }
     };
 
     let count = info.illust_details.page_count.parse().unwrap_or(1);
@@ -177,26 +188,32 @@ async fn send_pixiv(
         medias.push(media);
     }
 
-    match client.send_album(peer_ref, medias).await {
-        Ok(messages) => {
-            for (index, message) in messages.into_iter().enumerate() {
-                let key = format!("{pid}_p{index}");
-                if let Some(m) = message {
-                    match db::insert_from_message(&m, Some(&key)).await {
-                        Ok(_) => {
-                            info!("添加缓存媒体: {key}");
-                        }
-                        Err(e) => {
-                            error!("添加缓存媒体 {key} 失败: {e}");
+    if medias.is_empty() {
+        client
+            .send_message(peer_ref, InputMessage::new().html(msg).reply_to(msg_id))
+            .await?;
+    } else {
+        match client.send_album(peer_ref, medias).await {
+            Ok(messages) => {
+                for (index, message) in messages.into_iter().enumerate() {
+                    let key = format!("{pid}_p{index}");
+                    if let Some(m) = message {
+                        match db::insert_from_message(&m, Some(&key)).await {
+                            Ok(_) => {
+                                info!("添加缓存媒体: {key}");
+                            }
+                            Err(e) => {
+                                error!("添加缓存媒体 {key} 失败: {e}");
+                            }
                         }
                     }
                 }
             }
-        }
-        Err(e) => {
-            error!("消息发送失败: {e}");
-            mid.edit("消息发送失败").await?;
-            return Ok(());
+            Err(e) => {
+                error!("消息发送失败: {e}");
+                mid.edit("消息发送失败").await?;
+                return Ok(());
+            }
         }
     }
 

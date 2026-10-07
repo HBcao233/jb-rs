@@ -2,7 +2,7 @@ use jb_core::pixiv::fetch_info;
 use jb_core::pixiv::types::{PixivDetails, PixivError};
 use regex::regex;
 use tokio::fs;
-use tracing::error;
+use tracing::{error, warn};
 use wreq::Client;
 
 const MAX_COMMENT_LENGTH: usize = 600;
@@ -21,7 +21,12 @@ pub(super) async fn get_info(client: &Client, pid: &str) -> Result<PixivDetails,
 
     let name = format!("{pid}.json");
     let cache_file = cache_dir.join(name);
-    fetch_info(client, pid, cookies, &cache_file).await
+    let res = fetch_info(client, pid, cookies, &cache_file).await?;
+    if let Some(ref mask_reason) = res.illust_details.mask_reason {
+        warn!("媒体获取失败: {mask_reason}");
+        fs::remove_file(cache_file).await?;
+    }
+    Ok(res)
 }
 
 pub fn parse_msg(info: &PixivDetails) -> String {
