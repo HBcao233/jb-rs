@@ -32,3 +32,6 @@ pub mod hosting;
 
 #[cfg(feature = "soutu")]
 pub mod soutu;
+
+#[cfg(feature = "pixiv")]
+mod pixiv;

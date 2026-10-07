@@ -12,8 +12,8 @@ pub async fn get_bili(
     bvid: &str,
     grisk_id: Option<String>,
 ) -> Result<BiliInfo, BiliError> {
-    let cache_dir = Path::new("cache/bilis");
-    if let Err(e) = fs::create_dir_all(cache_dir).await {
+    let cache_dir = crate::cache_dir().join("bilis");
+    if let Err(e) = fs::create_dir_all(&cache_dir).await {
         error!("缓存文件夹创建失败: {e:?}");
         return Err(BiliError::Io(e));
     }

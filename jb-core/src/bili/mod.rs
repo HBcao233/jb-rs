@@ -84,18 +84,20 @@ where
     }
     wbi(query, &mixin_key);
 
-    let mut c: Vec<String> = Vec::new();
-    for (k, v) in cookies.into_iter() {
-        c.push(format!("{}={}", k.as_ref(), v.as_ref()));
-    }
+    let mut extra: Vec<(&str, String)> = Vec::new();
     if let Some((b3, b4)) = buvid {
-        c.push(format!("buvid3={}", b3));
-        c.push(format!("buvid4={}", b4));
+        extra.push(("buvid3", b3));
+        extra.push(("buvid4", b4));
     }
     if let Some(g) = grisk_id {
-        c.push(format!("x-bili-gaia-vtoken={}", g));
+        extra.push(("x-bili-gaia-vtoken", g));
     }
-    let cookie: String = c.join("; ");
+    let cookie = crate::encode_cookies(
+        cookies
+            .iter()
+            .map(|(k, v)| (k.as_ref(), v.as_ref()))
+            .chain(extra.iter().map(|(k, v)| (*k, v.as_str()))),
+    );
 
     let headers = headers
         .into_iter()

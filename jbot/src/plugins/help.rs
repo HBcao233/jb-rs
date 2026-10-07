@@ -24,7 +24,7 @@ const HELP: &str = "<b>Hi! 这里是小派魔6号姬!</b>
 
 ◆ 爬虫
 ◆ 发送链接自动解析可爬取内容
-● 支持 Twitter、Bilibili、Douyin 等站点
+● 支持 Pixiv、Twitter、Bilibili、Douyin 等站点
 
 对小派魔有任何建议或意见欢迎前往 <a href=\"https://t.me/HBcaoHome\">🍀派魔喵の家🍥</a> 私聊或评论喵！";
 

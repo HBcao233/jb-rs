@@ -58,6 +58,11 @@ youtube = [
     "dep:jb-core",
 ]
 soutu = ["hosting", "dep:percent-encoding"]
+pixiv = [
+    "core_curl",
+    "dep:jb-core",
+    "dep:regex",
+]
 
 [dependencies]
 jbot-macro = { path = "../jbot-macro" }
