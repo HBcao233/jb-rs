@@ -685,7 +685,7 @@ where
         return Ok(path);
     }
 
-    let status = FFmpeg::new()
+    let (status, stderr) = FFmpeg::new()
         .arg("-i")
         .arg(audio_path)
         .arg("-i")
@@ -696,7 +696,7 @@ where
         .await?;
 
     if !status.success() {
-        error!("ffmpeg exited with status: {:?}", status.code());
+        error!("合并媒体失败 ({:?}): {stderr}", status.code());
         return Err(anyhow::anyhow!("convert failed"));
     }
 

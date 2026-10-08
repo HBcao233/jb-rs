@@ -9,7 +9,7 @@ use grammers_client::media::InputMedia;
 use grammers_client::message::{InputMessage, Message};
 use grammers_session::types::{PeerKind, PeerRef};
 use grammers_tl_types as tl;
-use jb_core::pixiv::types::{Manga, UgoiraMeta};
+use jb_core::pixiv::types::{ImageResolution, Manga, UgoiraMeta};
 use regex::regex;
 use tokio::{fs, io};
 use tracing::{error, info, warn};
@@ -208,16 +208,16 @@ async fn send_pixiv(
                 .run()
                 .await
             {
-                Ok(status) => {
+                Ok((status, stderr)) => {
                     if !status.success() {
-                        error!("合成动图失败");
-                        mid.edit("{prefix} 合成动图失败").await?;
+                        error!("合成动图失败: {stderr}");
+                        mid.edit(format!("{prefix} 合成动图失败")).await?;
                         return Ok(());
                     }
                 }
                 Err(e) => {
                     error!("合成动图失败: {e}");
-                    mid.edit("{prefix} 合成动图失败").await?;
+                    mid.edit(format!("{prefix} 合成动图失败")).await?;
                     return Ok(());
                 }
             }
@@ -304,8 +304,20 @@ async fn send_pixiv(
         }
     };
 
-    let count = info.illust_details.page_count.parse().unwrap_or(1);
-    let mut medias = Vec::with_capacity(count);
+    if manga_a.is_empty() {
+        client
+            .send_message(peer_ref, InputMessage::new().html(msg).reply_to(msg_id))
+            .await?;
+        mid.delete().await?;
+        return Ok(());
+    }
+
+    // let count = info.illust_details.page_count.parse().unwrap_or(1);
+    let count = manga_a.len();
+    const BATCH_SIZE: usize = 10;
+    let mut medias = Vec::with_capacity(BATCH_SIZE);
+    let mut batch_pages = Vec::with_capacity(BATCH_SIZE);
+
     for (index, manga) in manga_a.into_iter().enumerate() {
         let human_index = index + 1;
         let page = manga.page;
@@ -346,6 +358,45 @@ async fn send_pixiv(
                 }
             };
 
+            let path = match info.illust_details.illust_images.get(index) {
+                Some(ImageResolution {
+                    illust_image_width,
+                    illust_image_height,
+                }) if *illust_image_width > 2560 || *illust_image_height > 2560 => {
+                    let resize_path = crate::cache_dir().join(format!("{key}_resize.{ext}"));
+                    let scale = if illust_image_width > illust_image_height {
+                        "scale=2560:-1"
+                    } else {
+                        "scale=-1:2560"
+                    };
+                    match crate::FFmpeg::new()
+                        .arg("-i")
+                        .arg(path)
+                        .arg("-vf")
+                        .arg(scale)
+                        .arg("-y")
+                        .arg(&resize_path)
+                        .run()
+                        .await
+                    {
+                        Ok((status, stderr)) => {
+                            if !status.success() {
+                                error!("缩放图片失败: {stderr}");
+                                mid.edit(format!("{prefix} 缩放图片失败")).await?;
+                                return Ok(());
+                            }
+                        }
+                        Err(e) => {
+                            error!("缩放图片失败: {e}");
+                            mid.edit(format!("{prefix} 缩放图片失败")).await?;
+                            return Ok(());
+                        }
+                    };
+                    resize_path
+                }
+                _ => path,
+            };
+
             let _ = mid
                 .edit(format!("{prefix} 上传图片中 {human_index} / {count}..."))
                 .await;
@@ -363,33 +414,33 @@ async fn send_pixiv(
             media = media.html(&msg).reply_to(msg_id);
         }
         medias.push(media);
-    }
+        batch_pages.push(page);
 
-    if medias.is_empty() {
-        client
-            .send_message(peer_ref, InputMessage::new().html(msg).reply_to(msg_id))
-            .await?;
-    } else {
-        match client.send_album(peer_ref, medias).await {
-            Ok(messages) => {
-                for (index, message) in messages.into_iter().enumerate() {
-                    let key = format!("{pid}_p{index}");
-                    if let Some(m) = message {
-                        match db::insert_from_message(&m, Some(&key)).await {
-                            Ok(_) => {
-                                info!("添加缓存媒体: {key}");
-                            }
-                            Err(e) => {
-                                error!("添加缓存媒体 {key} 失败: {e}");
+        if medias.len() >= BATCH_SIZE || index == count - 1 {
+            let chunk = std::mem::take(&mut medias);
+            let pages = std::mem::take(&mut batch_pages);
+
+            match client.send_album(peer_ref, chunk).await {
+                Ok(messages) => {
+                    for (message, page) in messages.into_iter().zip(pages.into_iter()) {
+                        let key = format!("{pid}_p{}", page);
+                        if let Some(m) = message {
+                            match db::insert_from_message(&m, Some(&key)).await {
+                                Ok(_) => {
+                                    info!("添加缓存媒体: {key}");
+                                }
+                                Err(e) => {
+                                    error!("添加缓存媒体 {key} 失败: {e}");
+                                }
                             }
                         }
                     }
                 }
-            }
-            Err(e) => {
-                error!("消息发送失败: {e}");
-                mid.edit("消息发送失败").await?;
-                return Ok(());
+                Err(e) => {
+                    error!("消息发送失败: {e}");
+                    mid.edit("消息发送失败").await?;
+                    return Ok(());
+                }
             }
         }
     }

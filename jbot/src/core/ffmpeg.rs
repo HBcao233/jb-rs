@@ -93,13 +93,13 @@ impl FFmpeg {
     }
 
     /// 执行 FFmpeg（不跟踪进度）
-    pub async fn run(self) -> io::Result<ExitStatus> {
+    pub async fn run(self) -> io::Result<(ExitStatus, String)> {
         self.run_with_progress(|_current_ms, _total_ms| {}).await
     }
 
     /// 执行 FFmpeg，并通过回调报告进度 `(current_ms, total_ms)`
     /// `total_ms`：总时长（毫秒），无法获取时为 `None`
-    pub async fn run_with_progress<F>(self, callback: F) -> io::Result<ExitStatus>
+    pub async fn run_with_progress<F>(self, callback: F) -> io::Result<(ExitStatus, String)>
     where
         F: Fn(usize, Option<usize>),
     {
@@ -119,11 +119,15 @@ impl FFmpeg {
             .ok_or_else(|| io::Error::other("failed to capture ffmpeg stderr"))?;
 
         let mut lines = BufReader::new(stderr).lines();
+        let mut stderr_buf = String::new();
 
         let mut total_ms: Option<usize> = None;
         let mut last_ms: Option<usize> = None;
 
         while let Some(line) = lines.next_line().await? {
+            stderr_buf.push_str(&line);
+            stderr_buf.push('\n');
+
             if total_ms.is_none() {
                 if let Some(duration) = parse_duration_line(&line) {
                     total_ms = Some(duration);
@@ -141,7 +145,8 @@ impl FFmpeg {
             }
         }
 
-        child.wait().await
+        let status = child.wait().await?;
+        Ok((status, stderr_buf))
     }
 }
 

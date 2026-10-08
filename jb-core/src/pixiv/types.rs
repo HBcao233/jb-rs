@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 pub(super) const DETAIL_HOST: &str = "https://www.pixiv.net/touch/ajax/illust/details";
 
@@ -69,6 +69,7 @@ pub struct IllustDetails {
     pub comment_html: Option<String>,
     pub upload_timestamp: i64,
     pub ugoira_meta: Option<LessUgoiraMeta>,
+    pub illust_images: Vec<ImageResolution>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -105,4 +106,20 @@ pub struct UgoiraMeta {
     #[serde(rename = "originalSrc")]
     pub original_src: String,
     pub frames: Vec<Frame>,
+}
+
+fn deserialize_string_to_u32<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    s.parse::<u32>().map_err(serde::de::Error::custom)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ImageResolution {
+    #[serde(deserialize_with = "deserialize_string_to_u32")]
+    pub illust_image_width: u32,
+    #[serde(deserialize_with = "deserialize_string_to_u32")]
+    pub illust_image_height: u32,
 }
