@@ -147,7 +147,7 @@ async fn send_douyin(
 
     let mut deleted = false;
     if detail.images.is_none()
-        && let Some(video) = detail.video
+        && let Some(ref video) = detail.video
     {
         let thumb_url = video.origin_cover.url_list.last().unwrap();
         let thumb_name = format!("{aid}_thumb.jpg");
@@ -206,7 +206,7 @@ async fn send_douyin(
                 .await?,
         );
 
-        if let Some(download_addr) = video.download_addr {
+        if let Some(ref download_addr) = video.download_addr {
             let key = format!("douyin_{aid}_down");
             let url = download_addr.url_list.last().unwrap();
             if let Err(e) = send_video(
@@ -435,7 +435,18 @@ async fn send_douyin(
             }
         };
 
-        let url = music.play_url.url_list.last().unwrap();
+        let url = match music.play_url.url_list.last() {
+            Some(url) => url,
+            None => match detail.video {
+                Some(ref video) if let Some(url) = video.play_addr.url_list.last() => url,
+                _ => {
+                    let tip = format!("{prefix} {}", music.offline_desc);
+                    error!("{tip}");
+                    mid.edit(tip).await?;
+                    return Ok(());
+                }
+            },
+        };
         let name = format!("{key}.mp3");
 
         let p = format!("{prefix} 下载音乐中...");

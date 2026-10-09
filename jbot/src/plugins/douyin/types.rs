@@ -56,6 +56,7 @@ pub struct Music {
     pub cover_thumb: Addr,
     pub title: String,
     pub author: String,
+    pub offline_desc: String,
 }
 
 #[derive(Debug, thiserror::Error)]
