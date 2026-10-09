@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 jiff.workspace = true
-tokio.workspace = true
+tokio = { version = "1.52.3", default-features = false, features = [] }
 tracing.workspace = true
 wreq.workspace = true
 

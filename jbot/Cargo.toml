@@ -77,7 +77,10 @@ dotenvy = { version = "0.15", default-features = false }
 linkme = { version = "0.3", default-features = false }
 libsql = { version = "0.9", default-features = false, features = ["core"] }
 tokio = { version = "1.52.3", default-features = false, features = [
-    "signal", "process"
+    "rt",
+    "rt-multi-thread",
+    "signal",
+    "process",
 ] }
 jiff = { version = "0.2.37", default-features = false, features = ["std"] }
 tracing = { version = "0.1.44", default-features = false }
