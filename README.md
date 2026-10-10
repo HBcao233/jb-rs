@@ -8,7 +8,7 @@ JB Cli.
 ```shell
 cargo build --release
 
-target/release/jb <url/BVID>
+target/release/jb <url>
 
 Usage: jb [Options] <url>
 
@@ -16,3 +16,6 @@ Options:
   -i, --info  information only.
   -h, --help  show this help message.
 ```
+
+# Supported Platforms
+* Bilibili

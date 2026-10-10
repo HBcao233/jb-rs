@@ -18,21 +18,21 @@ jobs:
       fail-fast: false # don't fail other jobs if one fails
       matrix:
         include:
-          - build: x86_64-linux
+          - build: linux-x86_64
             os: ubuntu-latest
             rust: stable
             target: x86_64-unknown-linux-gnu
             cross: false
-          - build: aarch64-linux
+          - build: linux-aarch64
             os: ubuntu-latest
             rust: stable
             target: aarch64-unknown-linux-gnu
             cross: true
-          - build: x86_64-macos
+          - build: macos-x86_64
             os: macos-latest
             rust: stable
             target: x86_64-apple-darwin
-          - build: x86_64-windows
+          - build: windows-x86_64
             os: windows-latest
             rust: stable
             target: x86_64-pc-windows-msvc
@@ -47,7 +47,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install aarch64 linker
-        if: matrix.build == 'aarch64-linux'
+        if: matrix.build == 'linux-aarch64'
         run: |
             sudo apt-get update
             sudo apt-get install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
@@ -61,24 +61,39 @@ jobs:
         run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Strip release binary (linux and macos)
-        if: matrix.build == 'x86_64-linux' || matrix.build == 'x86_64-macos'
+        if: matrix.build == 'linux-x86_64' || matrix.build == 'macos-x86_64'
         run: strip "target/${{ matrix.target }}/release/$BIN_NAME"
 
       - name: Strip release binary (arm)
-        if: matrix.build == 'aarch64-linux'
+        if: matrix.build == 'linux-aarch64'
         run: aarch64-linux-gnu-strip "target/${{ matrix.target }}/release/$BIN_NAME"
 
       - name: Build archive
         shell: bash
         run: |
-          mkdir dist
+          mkdir -p dist
+          cp LICENSE dist/
+          cat << 'EOF' > dist/README.md
+          # jb cli
+
+          Source: https://github.com/HBcao233/jb-rs/
+
+          Usage: jb [Options] <url>
+          Options:
+          * -i, --info  information only.
+          * -h, --help  show this help message.
+
+          # Supported Platforms
+          * Bilibili
+          EOF
+
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp "target/${{ matrix.target }}/release/$BIN_NAME.exe" "dist/"
+            cp "target/${{ matrix.target }}/release/$BIN_NAME.exe" dist/
           else
-            cp "target/${{ matrix.target }}/release/$BIN_NAME" "dist/"
+            cp "target/${{ matrix.target }}/release/$BIN_NAME" dist/
           fi
 
       - uses: actions/upload-artifact@v7
         with:
-          name: bins-${{ matrix.build }}
+          name: ${{ env.BIN_NAME }}_${{ github.ref_name }}_${{ matrix.build }}
           path: dist
