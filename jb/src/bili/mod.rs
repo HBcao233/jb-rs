@@ -6,14 +6,15 @@ use std::process::exit;
 use indicatif::BinaryBytes;
 use jb_core::bili::types::{self, BiliId};
 use regex::{Regex, regex};
-use rustix::termios::tcgetwinsize;
 use tracing::{error, info};
 use url::Url;
 
 use self::data_source::{get_bili_info, get_playurl, parse_desc};
 use crate::curl::{get_client, stream_download};
 use crate::ffmpeg::FFmpeg;
-use crate::{BLUE, CYAN, GREEN, NC, Options, RED, YELLOW, align_left, padding_left};
+use crate::{
+    BLUE, CYAN, GREEN, NC, Options, RED, YELLOW, align_left, padding_left, terminal_width,
+};
 
 pub async fn crawler_bili(input: &str, options: &Options) {
     let mut text = input.to_string();
@@ -189,8 +190,7 @@ async fn parse_bili(
         exit(500);
     };
 
-    let size = tcgetwinsize(std::io::stdout()).unwrap();
-    let width = size.ws_col as usize;
+    let width = terminal_width().unwrap_or(59) as usize;
 
     let pad = if width >= 80 { "     " } else { "   " };
     if options.info {

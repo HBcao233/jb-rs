@@ -11,7 +11,7 @@ use std::process::exit;
 use tokio::runtime;
 use tracing::trace;
 
-use crate::core::{align_left, padding_left};
+use crate::core::{align_left, padding_left, terminal_width};
 use crate::core::{curl, ffmpeg};
 
 const NC: &str = "\x1b[0m";
