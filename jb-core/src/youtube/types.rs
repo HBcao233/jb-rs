@@ -1,3 +1,5 @@
+//! types
+
 use serde::{Deserialize, Serialize};
 
 pub(super) const INFO_HOST: &str = "https://www.youtube.com/youtubei/v1/player";
@@ -82,23 +84,30 @@ struct ThirdParty {
     embedUrl: String,
 }
 
+/// Youtube 请求错误
 #[derive(Debug, thiserror::Error)]
 pub enum YoutubeError {
+    /// IO error
     #[error("IO 错误: {0}")]
     Io(#[from] tokio::io::Error),
 
+    /// http error
     #[error("请求失败")]
     Http(#[from] wreq::Error),
 
+    /// StatusCode is not 200
     #[error("状态码错误: {0}")]
     Status(u16),
 
+    /// json
     #[error("JSON 解析失败: {0}")]
     Json(#[from] serde_json::Error),
 
+    /// video not found
     #[error("Youtube 视频不存在")]
     NotFound,
 
+    /// api error
     #[error("API 错误: {0}")]
     Api(String),
 }
@@ -116,32 +125,47 @@ pub(super) struct PlayabilityStatus {
     pub(super) reason: String,
 }
 
+/// 视频信息
 #[derive(Debug, Deserialize)]
 pub struct VideoDetails {
+    /// 作者
     pub author: String,
+    /// Youtube 频道id
     #[serde(rename = "channelId")]
     pub channel_id: String,
+    /// 是否允许爬虫
     #[serde(rename = "isCrawlable")]
     pub is_crawlable: bool,
+    /// 时长
     #[serde(rename = "lengthSeconds")]
     pub length_seconds: String,
+    /// 描述
     #[serde(rename = "shortDescription")]
     pub short_description: String,
+    /// 缩略图
     pub thumbnail: ThumbnailInfo,
+    /// 视频标题
     pub title: String,
 
+    /// Youtube video id
     #[serde(rename = "videoId")]
     pub video_id: String,
 }
 
+/// 缩略图信息
 #[derive(Debug, Deserialize)]
 pub struct ThumbnailInfo {
+    ///
     pub thumbnails: Vec<Thumbnail>,
 }
 
+/// 缩略图
 #[derive(Debug, Deserialize)]
 pub struct Thumbnail {
+    /// 宽度
     pub width: u32,
+    /// 高度
     pub height: u32,
+    /// 链接
     pub url: String,
 }

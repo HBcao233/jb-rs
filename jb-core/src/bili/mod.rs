@@ -1,3 +1,5 @@
+//! Bilibili
+
 mod abv;
 pub mod types;
 
@@ -20,6 +22,7 @@ use self::types::{
     WbiImg,
 };
 
+/// 获取 buvid
 pub async fn get_buvid(client: &Client) -> Option<(String, String)> {
     let response = client.get(FINGER_HOST).send().await.ok()?;
     let res: FingerResult = response.json().await.ok()?;
@@ -28,6 +31,7 @@ pub async fn get_buvid(client: &Client) -> Option<(String, String)> {
     Some((b3, b4))
 }
 
+/// 获取 mixin_key
 pub async fn get_mixin_key(client: &Client) -> wreq::Result<String> {
     let response = client.get(NAV_HOST).send().await?;
     let res: NavResult = response.json().await?;
@@ -45,6 +49,7 @@ pub async fn get_mixin_key(client: &Client) -> wreq::Result<String> {
     Ok(mixin_key.chars().take(32).collect())
 }
 
+/// 对参数进行 wbi 签名
 pub fn wbi(query: &mut Vec<(&'_ str, String)>, mixin_key: &str) {
     let now = Timestamp::now();
     let now = now.as_second().to_string();
@@ -64,6 +69,7 @@ pub fn wbi(query: &mut Vec<(&'_ str, String)>, mixin_key: &str) {
     query.push(("w_rid", w_rid));
 }
 
+/// 随机生成 dm_img_str, dm_cover_img_str, dm_img_list, dm_img_inter
 pub fn random_dm() -> Vec<(&'static str, String)> {
     let mut dm_img_list = String::from("[");
     let mut timestamp = random_range(3000..4000);
@@ -106,6 +112,7 @@ pub fn random_dm() -> Vec<(&'static str, String)> {
     ]
 }
 
+/// bilibili 请求
 pub async fn fetch<T: DeserializeOwned, K, V>(
     client: &Client,
     url: &str,
@@ -198,6 +205,7 @@ where
     Ok(serde_json::from_value(data)?)
 }
 
+/// 获取 Bilibili 视频信息
 pub async fn fetch_bili_info<K, V>(
     client: &Client,
     aid: u64,
@@ -253,6 +261,7 @@ where
     Ok(res.view)
 }
 
+/// 解析简介
 pub fn parse_desc(desc: &[DescItem]) -> String {
     if desc.is_empty() {
         return String::new();
@@ -269,6 +278,7 @@ pub fn parse_desc(desc: &[DescItem]) -> String {
         .join("")
 }
 
+/// 获取视频播放流
 pub async fn fetch_playurl<K, V>(
     client: &Client,
     aid: u64,
@@ -331,6 +341,7 @@ where
     Ok(res)
 }
 
+/// 获取人机验证信息
 pub async fn get_gaia(
     wreq_client: &wreq::Client,
     v_voucher: String,
@@ -352,6 +363,7 @@ pub async fn get_gaia(
     Ok(res.data)
 }
 
+/// 进行人机验证
 pub async fn validate_gaia(
     wreq_client: &wreq::Client,
     token: String,

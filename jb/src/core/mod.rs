@@ -16,6 +16,8 @@ pub fn padding_left(s: &str, count: usize) -> String {
     s.replace('\n', &padding)
 }
 
+// from https://github.com/eminence/terminal-size.
+/// 获取终端宽度
 #[cfg(unix)]
 pub fn terminal_width() -> Option<u16> {
     use rustix::termios::tcgetwinsize;
@@ -24,6 +26,8 @@ pub fn terminal_width() -> Option<u16> {
     Some(size.ws_col)
 }
 
+// from https://github.com/eminence/terminal-size.
+/// 获取终端宽度
 #[cfg(windows)]
 pub fn terminal_width() -> Option<u16> {
     use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;

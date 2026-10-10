@@ -1,3 +1,5 @@
+//! Youtube
+
 pub mod types;
 
 use std::path::PathBuf;
@@ -37,6 +39,7 @@ async fn get_ytcfg(client: &Client) -> Ytcfg {
     }
 }
 
+/// 获取 Youtube 视频信息
 pub async fn get_video_info(
     client: &Client,
     video_id: &str,

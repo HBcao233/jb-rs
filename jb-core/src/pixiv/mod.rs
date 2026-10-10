@@ -1,3 +1,5 @@
+//! Pixiv
+
 pub mod types;
 
 use std::path::PathBuf;
@@ -60,6 +62,7 @@ where
     Ok(serde_json::from_value(body)?)
 }
 
+/// 获取 Pixiv artwork 作品信息
 pub async fn fetch_info<K, V>(
     client: &Client,
     pid: &str,
@@ -81,6 +84,7 @@ where
     fetch(client, pid, DETAIL_HOST, &query, cookies, cache_file).await
 }
 
+/// 获取动图信息
 pub async fn fetch_ugoira_meta<K, V>(
     client: &Client,
     pid: &str,
