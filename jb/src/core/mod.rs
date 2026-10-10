@@ -30,12 +30,9 @@ pub fn terminal_width() -> Option<u16> {
     use windows_sys::Win32::System::Console::{
         CONSOLE_SCREEN_BUFFER_INFO, COORD, GetConsoleScreenBufferInfo, SMALL_RECT,
     };
+    use windows_sys::Win32::System::Console::{GetStdHandle, STD_OUTPUT_HANDLE};
 
-    let handle =
-        unsafe { BorrowedHandle::borrow_raw(GetStdHandle(STD_OUTPUT_HANDLE) as RawHandle) };
-    // convert between windows_sys::Win32::Foundation::HANDLE and std::os::windows::raw::HANDLE
-    let hand = handle.as_handle().as_raw_handle() as windows_sys::Win32::Foundation::HANDLE;
-
+    let hand = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
     if hand == INVALID_HANDLE_VALUE {
         return None;
     }
