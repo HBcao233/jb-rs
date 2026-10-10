@@ -155,7 +155,7 @@ pub struct VideoDetails {
 /// 缩略图信息
 #[derive(Debug, Deserialize)]
 pub struct ThumbnailInfo {
-    ///
+    /// 不同尺寸的缩略图
     pub thumbnails: Vec<Thumbnail>,
 }
 
