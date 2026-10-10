@@ -119,7 +119,7 @@ where
     K: AsRef<str>,
     V: AsRef<str>,
 {
-    let mixin_key = get_mixin_key(&client).await?;
+    let mixin_key = get_mixin_key(client).await?;
     let buvid = get_buvid(client).await;
     if let Some((ref b3, _)) = buvid {
         let now = jiff::Timestamp::now();
@@ -210,7 +210,7 @@ where
     K: AsRef<str>,
     V: AsRef<str>,
 {
-    let cache_file = cache_path.join(&format!("{bvid}.json"));
+    let cache_file = cache_path.join(format!("{bvid}.json"));
     let cache: Option<BiliDetail> = match fs::read_to_string(&cache_file).await {
         Ok(text) => match serde_json::from_str(&text) {
             Ok(value) => Some(value),
@@ -257,7 +257,7 @@ pub fn parse_desc(desc: &[DescItem]) -> String {
     if desc.is_empty() {
         return String::new();
     }
-    desc.into_iter()
+    desc.iter()
         .map(|d| {
             if d.r#type == 2 {
                 format!("[{}](https://space.bilibili.com/{})", d.raw_text, d.biz_id)
@@ -282,7 +282,7 @@ where
     K: AsRef<str>,
     V: AsRef<str>,
 {
-    let cache_file = cache_path.join(&format!("{bvid}_playurl.json"));
+    let cache_file = cache_path.join(format!("{bvid}_playurl.json"));
 
     let mut query = vec![
         ("avid", aid.to_string()),

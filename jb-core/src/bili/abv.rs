@@ -10,12 +10,8 @@ const BASE: u64 = 58;
 const BV_LEN: usize = 12;
 const PREFIX: &str = "BV1";
 
-const ALPHABET: [u8; BASE as usize] = [
-    b'F', b'c', b'w', b'A', b'P', b'N', b'K', b'T', b'M', b'u', b'g', b'3', b'G', b'V', b'5', b'L',
-    b'j', b'7', b'E', b'J', b'n', b'H', b'p', b'W', b's', b'x', b'4', b't', b'b', b'8', b'h', b'a',
-    b'Y', b'e', b'v', b'i', b'q', b'B', b'z', b'6', b'r', b'k', b'C', b'y', b'1', b'2', b'm', b'U',
-    b'S', b'D', b'Q', b'X', b'9', b'R', b'd', b'o', b'Z', b'f',
-];
+const ALPHABET: [u8; BASE as usize] =
+    *b"FcwAPNKTMug3GV5Lj7EJnHpWsx4tb8haYeviqBz6rkCy12mUSDQX9RdoZf";
 
 #[rustfmt::skip]
 fn rev(value: u8) -> Option<u8> {
@@ -32,17 +28,15 @@ fn rev(value: u8) -> Option<u8> {
     }
 }
 
-pub fn av2bv(avid: u64) -> Result<String, ()> {
+pub fn av2bv(avid: u64) -> Option<String> {
     if avid < MIN_AID {
-        return Err(());
+        return None;
     }
     if avid >= MAX_AID {
-        return Err(());
+        return None;
     }
 
-    let mut bytes: [u8; BV_LEN] = [
-        b'B', b'V', b'1', b'0', b'0', b'0', b'0', b'0', b'0', b'0', b'0', b'0',
-    ];
+    let mut bytes: [u8; BV_LEN] = *b"BV1000000000";
 
     let mut bv_idx = BV_LEN - 1;
     let mut tmp = (MAX_AID | avid) ^ XOR_CODE;
@@ -61,25 +55,21 @@ pub fn av2bv(avid: u64) -> Result<String, ()> {
     // SAFETY: bytes represent an ASCII string
     let str = String::from_utf8(bytes.to_vec()).unwrap();
 
-    Ok(str)
+    Some(str)
 }
 
-pub fn bv2av<'a, S>(bvid: S) -> Result<u64, ()>
-where
-    S: AsRef<str>,
-{
-    let bvid = bvid.as_ref();
+pub fn bv2av(bvid: &str) -> Option<u64> {
     if bvid.is_empty() || !bvid.is_ascii() {
-        return Err(());
+        return None;
     }
 
     if bvid.len() != BV_LEN {
-        return Err(());
+        return None;
     }
 
     // SAFETY: Already checked before
     if !bvid[0..3].eq_ignore_ascii_case(PREFIX) {
-        return Err(());
+        return None;
     }
 
     let mut bytes = bvid.as_bytes().to_vec();
@@ -90,7 +80,7 @@ where
     let mut tmp: u64 = 0;
 
     for byte in &bytes[3..] {
-        let idx = rev(*byte).ok_or(())?;
+        let idx = rev(*byte)?;
         tmp = tmp * BASE + idx as u64;
     }
 
@@ -102,16 +92,16 @@ where
     };
 
     if bin_len != 52 {
-        return Err(());
+        return None;
     }
 
     let avid = (tmp & MASK_CODE) ^ XOR_CODE;
 
     if avid < MIN_AID {
-        return Err(());
+        return None;
     }
 
-    Ok(avid)
+    Some(avid)
 }
 
 #[cfg(test)]

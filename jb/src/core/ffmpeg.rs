@@ -85,21 +85,20 @@ impl FFmpeg {
                 ),
         );
         while let Some(line) = lines.next_line().await? {
-            if total_ms.is_none() {
-                if let Some(duration) = parse_duration_line(&line) {
-                    total_ms = Some(duration);
-                    bar.set_length(duration as u64);
-                }
+            if total_ms.is_none()
+                && let Some(duration) = parse_duration_line(&line)
+            {
+                total_ms = Some(duration);
+                bar.set_length(duration as u64);
             }
 
             if let Some(current_ms) = parse_progress_time(&line)
                 .or_else(|| parse_out_time_us(&line))
                 .or_else(|| parse_stats_time(&line))
+                && last_ms != Some(current_ms)
             {
-                if last_ms != Some(current_ms) {
-                    last_ms = Some(current_ms);
-                    bar.set_position(current_ms as u64);
-                }
+                last_ms = Some(current_ms);
+                bar.set_position(current_ms as u64);
             }
         }
         bar.finish();
@@ -190,25 +189,4 @@ fn parse_timestamp_ms(value: &str) -> Option<usize> {
         .checked_add(millis)?;
 
     usize::try_from(total_ms).ok()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    #[ignore = "expensive"]
-    async fn test_ffmpeg() {
-        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let path = path.parent().unwrap();
-        let status = FFmpeg::new()
-            .arg("-y")
-            .arg("-i")
-            .arg(path.join("target/input.mp4"))
-            .arg(path.join("target/output.mp4"))
-            .run()
-            .await
-            .unwrap();
-        let _ = dbg!(status);
-    }
 }

@@ -53,10 +53,10 @@ pub enum BiliId {
 }
 
 impl BiliId {
-    pub fn to_raw(&self) -> Result<(u64, String), ()> {
+    pub fn to_raw(&self) -> Option<(u64, String)> {
         match self {
-            Self::AV(aid) => Ok((*aid, av2bv(*aid)?)),
-            Self::BV(bvid) => Ok((bv2av(bvid)?, bvid.to_string())),
+            Self::AV(aid) => Some((*aid, av2bv(*aid)?)),
+            Self::BV(bvid) => Some((bv2av(bvid)?, bvid.to_string())),
         }
     }
 }

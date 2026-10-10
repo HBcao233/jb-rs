@@ -58,7 +58,7 @@ pub async fn crawler_bili(input: &str, options: &Options) {
             BiliId::BV(id.to_string())
         };
 
-        let Ok((aid, bvid)) = bili_id.to_raw() else {
+        let Some((aid, bvid)) = bili_id.to_raw() else {
             eprintln!("{RED}error{NC}: 无效的 avid/bvid: {id}");
             exit(400);
         };
@@ -88,15 +88,15 @@ async fn parse_bili(
     } = get_bili_info(&client, aid, &bvid, &options.cookies).await?;
     println!();
     println!(" {CYAN}{}{NC}  哔哩哔哩 Bilibili", align_left("Site:", 13));
-    println!(" {CYAN}{}{NC}  {}", align_left("BVid:", 13), &bvid);
-    println!(" {CYAN}{}{NC}  {}", align_left("Title:", 13), &title);
+    println!(" {CYAN}{}{NC}  {}", align_left("BVid:", 13), bvid);
+    println!(" {CYAN}{}{NC}  {}", align_left("Title:", 13), title);
     let desc = match desc_v2 {
         Some(d) => parse_desc(&d),
         None => String::new(),
     };
     let desc = desc.trim();
     if desc.contains('\n') {
-        println!(" {CYAN}Description:{NC}\n {}", padding_left(&desc, 1));
+        println!(" {CYAN}Description:{NC}\n {}", padding_left(desc, 1));
     } else {
         println!(" {CYAN}{}{NC}  {}", align_left("Description:", 13), desc);
     }
@@ -133,7 +133,7 @@ async fn parse_bili(
             if v.mime_type == "video/mp4" {
                 let mut urls = Vec::with_capacity(1 + v.backup_url.len());
                 urls.push(re.replace(&v.base_url, HW_CDN));
-                urls.extend(v.backup_url.iter().map(|u| re.replace(&u, HW_CDN)));
+                urls.extend(v.backup_url.iter().map(|u| re.replace(u, HW_CDN)));
                 videos.push(Video {
                     id: v.id,
                     size: v.bandwidth as u64 * duration as u64 / 8,
@@ -150,7 +150,7 @@ async fn parse_bili(
                     let mut urls = Vec::with_capacity(1 + v.backup_url.len());
 
                     urls.push(re.replace(&v.base_url, HW_CDN));
-                    urls.extend(v.backup_url.iter().map(|u| re.replace(&u, HW_CDN)));
+                    urls.extend(v.backup_url.iter().map(|u| re.replace(u, HW_CDN)));
                     audios.push(Audio {
                         id: v.id,
                         size: v.bandwidth as u64 * duration as u64 / 8,
@@ -166,13 +166,13 @@ async fn parse_bili(
             url,
             backup_url,
             size,
-        } = durl.into_iter().next().unwrap();
+        } = durl.iter().next().unwrap();
         let mut urls = Vec::with_capacity(1 + backup_url.as_ref().map(|b| b.len()).unwrap_or(0));
 
-        urls.push(re.replace(&url, HW_CDN));
+        urls.push(re.replace(url, HW_CDN));
 
         if let Some(backup) = backup_url {
-            urls.extend(backup.iter().map(|u| re.replace(&u, HW_CDN)));
+            urls.extend(backup.iter().map(|u| re.replace(u, HW_CDN)));
         }
 
         videos.push(Video {
@@ -375,9 +375,9 @@ fn print_stream(
     accept_quality: &[i32],
     accept_description: &[String],
 ) {
-    let mut size = video.size as u64;
-    if let Some(ref a) = audio {
-        size += a.size as u64;
+    let mut size = video.size;
+    if let Some(a) = audio {
+        size += a.size;
     }
 
     let mut quality = accept_quality
@@ -386,9 +386,9 @@ fn print_stream(
         .and_then(|index| accept_description.get(index))
         .cloned()
         .unwrap_or(String::from("高清 720P"));
-    if let Some(ref c) = video.codecs {
+    if let Some(c) = video.codecs {
         quality.push(' ');
-        quality.push_str(&c);
+        quality.push_str(c);
     }
     let size = BinaryBytes(size);
     println!(

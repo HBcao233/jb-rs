@@ -31,11 +31,7 @@ async fn async_main() {
     let mut options = Options::default();
     let mut input = None;
 
-    loop {
-        let Some(arg) = args.next() else {
-            break;
-        };
-
+    while let Some(arg) = args.next() {
         if arg.starts_with('-') {
             if arg == "-h" || arg == "--help" {
                 println!(
