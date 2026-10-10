@@ -1,6 +1,6 @@
 [package]
 name = "jb"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["HBcao <hbcaoqaq@outlook.com>"]
 license = "MIT OR Apache-2.0"
 description = ""
@@ -32,3 +32,4 @@ regex = { version = "1.13" }
 wreq.workspace = true
 wreq-util.workspace = true
 futures-util = { version = "0.3" }
+url = "2.5.8"

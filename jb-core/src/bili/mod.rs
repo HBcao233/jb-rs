@@ -1,9 +1,12 @@
 mod abv;
 pub mod types;
 
+use std::fmt::Write;
 use std::path::{Path, PathBuf};
 
 use jiff::Timestamp;
+use rand::distr::Alphanumeric;
+use rand::{RngExt, random_range};
 use serde::de::DeserializeOwned;
 use tokio::fs;
 use tracing::{error, info, warn};
@@ -59,6 +62,48 @@ pub fn wbi(query: &mut Vec<(&'_ str, String)>, mixin_key: &str) {
     let w_rid = format!("{:x}", md5::compute(encoded + mixin_key));
 
     query.push(("w_rid", w_rid));
+}
+
+pub fn random_dm() -> Vec<(&'static str, String)> {
+    let mut dm_img_list = String::from("[");
+    let mut timestamp = random_range(3000..4000);
+    for i in 0..3 {
+        if i > 0 {
+            dm_img_list.push(',');
+        }
+        let x = random_range(50..2500);
+        let y = random_range(-50..500);
+        let z = random_range(0..100);
+        let k = random_range(50..150);
+        let t = random_range(0..=1);
+        write!(
+            dm_img_list,
+            r#"{{"x":{x},"y":{y},"z":{z},"timestamp":{timestamp},"k":{k},"type":{t}}}"#
+        )
+        .unwrap();
+        timestamp += random_range(1000..2000);
+    }
+    dm_img_list.push(']');
+
+    let dm_img_str = rand::rng()
+        .sample_iter(&Alphanumeric)
+        .take(46)
+        .map(char::from)
+        .collect();
+    let dm_cover_img_str = rand::rng()
+        .sample_iter(&Alphanumeric)
+        .take(74)
+        .map(char::from)
+        .collect();
+    vec![
+        ("dm_img_list", dm_img_list),
+        ("dm_img_str", dm_img_str),
+        ("dm_cover_img_str", dm_cover_img_str),
+        (
+            "dm_img_inter",
+            r#"{"ds":[],"wh":[6623,2257,69],"of":[78,154,70]})"#.to_string(),
+        ),
+    ]
 }
 
 pub async fn fetch<T: DeserializeOwned, K, V>(
@@ -121,6 +166,7 @@ where
         message,
         data,
     } = response.json().await?;
+    info!(?code, ?message, "result");
     match code {
         0 | -352 => {
             if let Some(v_voucher) = header_voucher {
@@ -252,12 +298,22 @@ where
         ("need_fragment", "false".to_string()),
         ("isGaiaAvoided", "false".to_string()),
         ("client_attr", "0".to_string()),
-        ("version_name", "4.9.96-rc.5539.0".to_string()),
+        ("version_name", "4.10.4".to_string()),
         ("app_id", "100".to_string()),
         ("voice_balance", "1".to_string()),
         ("try_look", "1".to_string()),
         ("web_location", "1315873".to_string()),
+        (
+            "x-bili-device-req-json",
+            r#"{"platform":"web","device":"pc","mobi_app":"web_cn"}"#.to_string(),
+        ),
+        (
+            "x-bili-locale-json",
+            r#"{"c_locale":{"language":"zh","script":"Hans"},"always_translate":false}"#
+                .to_string(),
+        ),
     ];
+    query.extend(random_dm());
 
     let referer = format!("https://www.bilibili.com/video/{}/", bvid);
     let headers = [("referer", referer)];

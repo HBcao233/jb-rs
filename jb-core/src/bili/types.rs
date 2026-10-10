@@ -69,7 +69,7 @@ pub enum BiliError {
     #[error("IO 错误: {0}")]
     Io(#[from] tokio::io::Error),
 
-    #[error("请求失败")]
+    #[error("请求失败: {0}")]
     Http(#[from] wreq::Error),
 
     #[error("状态码错误: {0}")]
@@ -185,7 +185,7 @@ pub struct PlayurlInfo {
 
 #[derive(Debug, Deserialize)]
 pub struct DashInfo {
-    // pub duration: u32,
+    pub duration: u32,
     pub audio: Option<Vec<DashMedia>>,
     pub video: Vec<DashMedia>,
 }
@@ -207,7 +207,7 @@ pub struct DashMedia {
 pub struct DurlInfo {
     pub size: u32,
     pub url: String,
-    pub backup_url: Vec<String>,
+    pub backup_url: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]

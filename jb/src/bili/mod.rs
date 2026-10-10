@@ -1,12 +1,14 @@
 mod data_source;
 
+use std::borrow::Cow;
 use std::process::exit;
 
 use indicatif::BinaryBytes;
 use jb_core::bili::types::{self, BiliId};
-use regex::Regex;
+use regex::{Regex, regex};
 use rustix::termios::tcgetwinsize;
 use tracing::{error, info};
+use url::Url;
 
 use self::data_source::{get_bili_info, get_playurl, parse_desc};
 use crate::curl::{get_client, stream_download};
@@ -113,77 +115,76 @@ async fn parse_bili(
         exit(1)
     });
 
-    let types::PlayurlInfo {
-        quality,
-        accept_quality,
-        accept_description,
-        dash,
-        durl,
-        ..
-    } = get_playurl(&client, aid, &bvid, cid, &options.cookies).await?;
+    let playurl = get_playurl(&client, aid, &bvid, cid, &options.cookies).await?;
 
-    let quality = quality.unwrap();
-    let accept_quality = accept_quality.unwrap();
-    let accept_description = accept_description.unwrap();
+    let quality = playurl.quality.unwrap();
+    let accept_quality = playurl.accept_quality.unwrap();
+    let accept_description = playurl.accept_description.unwrap();
 
-    let (videos, audios) = if let Some(dash) = dash {
-        let types::DashInfo { video, audio } = dash;
+    let mut videos = Vec::new();
+    let mut audios = Vec::new();
+    let re = regex!(r"https://[^/]*akamaized\.net");
+    const HW_CDN: &str = "https://upos-sz-mirrorcos.bilivideo.com";
 
-        let videos = video
-            .into_iter()
-            .filter(|ref v| v.mime_type == "video/mp4")
-            .map(|v| {
+    if let Some(ref da) = playurl.dash {
+        let duration = da.duration;
+
+        for v in da.video.iter() {
+            if v.mime_type == "video/mp4" {
                 let mut urls = Vec::with_capacity(1 + v.backup_url.len());
-                urls.push(v.base_url);
-                urls.extend(v.backup_url);
-                Video {
+                urls.push(re.replace(&v.base_url, HW_CDN));
+                urls.extend(v.backup_url.iter().map(|u| re.replace(&u, HW_CDN)));
+                videos.push(Video {
                     id: v.id,
-                    size: v.bandwidth,
+                    size: v.bandwidth as u64 * duration as u64 / 8,
                     urls,
-                    codecs: Some(v.codecs),
+                    codecs: Some(&v.codecs),
                     codecid: Some(v.codecid),
-                }
-            })
-            .collect();
+                });
+            }
+        }
 
-        let audios = if let Some(audio) = audio {
-            let audios: Vec<Audio> = audio
-                .into_iter()
-                .filter(|ref v| v.mime_type == "audio/mp4")
-                .map(|v| {
+        if let Some(ref au) = da.audio {
+            for v in au.iter() {
+                if v.mime_type == "audio/mp4" {
                     let mut urls = Vec::with_capacity(1 + v.backup_url.len());
-                    urls.push(v.base_url);
-                    urls.extend(v.backup_url);
-                    Audio {
+
+                    urls.push(re.replace(&v.base_url, HW_CDN));
+                    urls.extend(v.backup_url.iter().map(|u| re.replace(&u, HW_CDN)));
+                    audios.push(Audio {
                         id: v.id,
-                        size: v.bandwidth,
+                        size: v.bandwidth as u64 * duration as u64 / 8,
                         urls,
-                    }
-                })
-                .collect();
-            Some(audios)
-        } else {
-            None
-        };
-        (videos, audios)
-    } else if let Some(durl) = durl {
+                    });
+                }
+            }
+        }
+    }
+
+    if let Some(ref durl) = playurl.durl {
         let types::DurlInfo {
             url,
             backup_url,
             size,
         } = durl.into_iter().next().unwrap();
-        let mut urls = Vec::with_capacity(1 + backup_url.len());
-        urls.push(url);
-        urls.extend(backup_url);
-        let video = Video {
+        let mut urls = Vec::with_capacity(1 + backup_url.as_ref().map(|b| b.len()).unwrap_or(0));
+
+        urls.push(re.replace(&url, HW_CDN));
+
+        if let Some(backup) = backup_url {
+            urls.extend(backup.iter().map(|u| re.replace(&u, HW_CDN)));
+        }
+
+        videos.push(Video {
             id: quality,
-            size,
+            size: *size as u64,
             urls,
             codecs: None,
             codecid: None,
-        };
-        (vec![video], None)
-    } else {
+        });
+    }
+
+    if videos.is_empty() {
         eprintln!("{RED}error{NC}: 未解析到流信息");
         exit(500);
     };
@@ -195,18 +196,12 @@ async fn parse_bili(
     if options.info {
         println!(" {CYAN}Videos:{NC}");
 
-        let audio = audios.and_then(|audios| audios.into_iter().max_by_key(|x| x.id));
+        let audio = audios.into_iter().max_by_key(|x| x.id);
         for video in videos {
-            let mut size = video.size as u64;
-            if let Some(ref a) = audio {
-                size += a.size as u64;
-            }
             print_stream(
                 pad,
-                video.id,
-                video.codecid,
-                size,
-                video.codecs,
+                &video,
+                audio.as_ref(),
                 &accept_quality,
                 &accept_description,
             );
@@ -215,7 +210,7 @@ async fn parse_bili(
         exit(0);
     } else {
         println!(" {CYAN}Selected video:{NC}");
-        let audio = audios.and_then(|audios| audios.into_iter().max_by_key(|x| x.id));
+        let audio = audios.into_iter().max_by_key(|x| x.id);
         let video = videos
             .into_iter()
             .max_by(|a, b| {
@@ -224,23 +219,20 @@ async fn parse_bili(
             })
             .unwrap();
 
-        let mut size = video.size as u64;
-        if let Some(ref a) = audio {
-            size += a.size as u64;
-        }
-
         print_stream(
             pad,
-            video.id,
-            video.codecid,
-            size,
-            video.codecs,
+            &video,
+            audio.as_ref(),
             &accept_quality,
             &accept_description,
         );
 
         let key = format!("{bvid}_{cid}");
-        let name = format!("{key}.mp4");
+        let name = format!(
+            "{key}_{}+{}.mp4",
+            video.id,
+            audio.as_ref().map(|a| a.id).unwrap_or_default()
+        );
         let video_name = format!(
             "{key}_video_{}{}.mp4",
             video.id,
@@ -255,6 +247,8 @@ async fn parse_bili(
         loop {
             let url = match video.urls.get(index) {
                 Some(url) => {
+                    let u = Url::parse(url).unwrap();
+                    info!("CDN: {}", u.host().unwrap());
                     println!(
                         " {GREEN}Downloading{NC} {video_name}{}",
                         if index == 0 {
@@ -284,13 +278,37 @@ async fn parse_bili(
         println!();
         if let Some(a) = audio {
             let audio_name = format!("{key}_audio_{}.mp4", a.id);
-            println!(" {GREEN}Downloading{NC} {audio_name}");
-            match stream_download(&client, &a.urls[0], &audio_name, &headers).await {
-                Ok(_) => {}
-                Err(e) => {
-                    eprintln!("{RED}error{NC}: {e}");
-                    exit(1);
+
+            let mut index = 0;
+            loop {
+                let url = match a.urls.get(index) {
+                    Some(url) => {
+                        let u = Url::parse(url).unwrap();
+                        info!("CDN: {}", u.host().unwrap());
+                        println!(
+                            " {GREEN}Downloading{NC} {audio_name}{}",
+                            if index == 0 {
+                                String::new()
+                            } else {
+                                format!(" Retry {index}")
+                            }
+                        );
+                        url
+                    }
+                    None => {
+                        eprintln!("{RED}error{NC}: 所有视频下载尝试均失败");
+                        exit(1);
+                    }
+                };
+                match stream_download(&client, url, &audio_name, &headers).await {
+                    Ok(_) => {
+                        break;
+                    }
+                    Err(e) => {
+                        eprintln!("{YELLOW}warn{NC}: 下载失败: {e}");
+                    }
                 }
+                index += 1;
             }
 
             println!(" {GREEN}Merging{NC} {name}");
@@ -336,44 +354,47 @@ async fn parse_bili(
     Ok(())
 }
 
-struct Video {
+struct Video<'a> {
     id: i32,
-    size: u32,
-    urls: Vec<String>,
-    codecs: Option<String>,
+    size: u64,
+    urls: Vec<Cow<'a, str>>,
+    codecs: Option<&'a str>,
     codecid: Option<i32>,
 }
 
-struct Audio {
+struct Audio<'a> {
     id: i32,
-    size: u32,
-    urls: Vec<String>,
+    size: u64,
+    urls: Vec<Cow<'a, str>>,
 }
 
 fn print_stream(
     pad: &str,
-    id: i32,
-    codecid: Option<i32>,
-    size: u64,
-    codecs: Option<String>,
+    video: &Video,
+    audio: Option<&Audio>,
     accept_quality: &[i32],
     accept_description: &[String],
 ) {
+    let mut size = video.size as u64;
+    if let Some(ref a) = audio {
+        size += a.size as u64;
+    }
+
     let mut quality = accept_quality
         .iter()
-        .position(|x| id == *x)
+        .position(|x| *x == video.id)
         .and_then(|index| accept_description.get(index))
         .cloned()
         .unwrap_or(String::from("高清 720P"));
-    if let Some(c) = codecs {
+    if let Some(ref c) = video.codecs {
         quality.push(' ');
         quality.push_str(&c);
     }
     let size = BinaryBytes(size);
     println!(
         "{pad}{BLUE}[{}{}]{NC}",
-        id,
-        codecid.map(|x| format!("-{x}")).unwrap_or_default()
+        video.id,
+        video.codecid.map(|x| format!("-{x}")).unwrap_or_default()
     );
     println!("{pad}{CYAN}{}{NC}  {}", align_left("Quality:", 10), quality);
     println!("{pad}{CYAN}{}{NC}  {}", align_left("Size:", 10), size);
