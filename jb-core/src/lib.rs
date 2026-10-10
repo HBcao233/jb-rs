@@ -1,7 +1,10 @@
+//! jb-core
+
 pub mod bili;
 pub mod pixiv;
 pub mod youtube;
 
+/// encode cookies
 pub fn encode_cookies<K, V>(cookies: impl IntoIterator<Item = (K, V)>) -> String
 where
     K: AsRef<str>,

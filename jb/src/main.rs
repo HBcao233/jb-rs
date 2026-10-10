@@ -1,3 +1,5 @@
+//! jb cli.
+
 mod bili;
 mod core;
 
@@ -19,6 +21,7 @@ const BLUE: &str = "\x1b[1;34m";
 const CYAN: &str = "\x1b[36m";
 const YELLOW: &str = "\x1b[1;33m";
 
+/// crawler options.
 #[derive(Default, Clone, Debug)]
 pub struct Options {
     info: bool,
