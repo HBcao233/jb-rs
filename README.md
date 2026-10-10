@@ -3,7 +3,9 @@
 JB Cli.
 
 ```shell
-cargo build --bin jb --release
+cargo build --release
+
+target/release/jb <url/BVID>
 
 Usage: jb [Options] <url>
 

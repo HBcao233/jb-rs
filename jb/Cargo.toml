@@ -15,7 +15,9 @@ edition = "2024"
 [dependencies]
 jb-core = { path = "../jb-core" }
 
-tokio.workspace = true
+tokio = { version = "1.52.3", default-features = false, features = [
+    "rt", "rt-multi-thread", "process"
+] }
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "fmt", "std", "env-filter"]}
 jiff.workspace = true
