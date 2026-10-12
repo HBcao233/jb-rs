@@ -11,3 +11,10 @@ jiff = { version = "0.2.37", default-features = false, features = ["std"] }
 wreq = { version = "0.16.1", features = ["query", "form", "json", "stream", "multipart"] }
 wreq-util = "0.2.0"
 thiserror = "2.0.21"
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+opt-level = "s"
+panic = "abort"

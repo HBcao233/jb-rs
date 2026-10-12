@@ -10,8 +10,6 @@ keywords = ["cli"]
 categories = []
 edition = "2024"
 
-[features]
-
 [dependencies]
 jb-core = { path = "../jb-core" }
 
