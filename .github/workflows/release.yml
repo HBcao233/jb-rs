@@ -18,41 +18,66 @@ jobs:
       fail-fast: false # don't fail other jobs if one fails
       matrix:
         include:
-          - build: linux-x86_64
+          - build: linux_x86_64
             os: ubuntu-latest
-            rust: stable
             target: x86_64-unknown-linux-gnu
-            cross: false
-          - build: linux-aarch64
+          - build: linux_aarch64
             os: ubuntu-latest
-            rust: stable
             target: aarch64-unknown-linux-gnu
-            cross: true
-          - build: macos-x86_64
+          - build: macos_x86_64
             os: macos-latest
-            rust: stable
             target: x86_64-apple-darwin
-          - build: windows-x86_64
+          - build: windows_x86_64
             os: windows-latest
-            rust: stable
             target: x86_64-pc-windows-msvc
+          - build: android_arm64_v8a
+            os: ubuntu-latest
+            target: aarch64-linux-android
+            abi: arm64-v8a
+          - build: android_armeabi_v7a
+            os: ubuntu-latest
+            target: armv7-linux-androideabi
+            abi: armeabi-v7a
+          - build: android_x86_64
+            os: ubuntu-latest
+            target: x86_64-linux-android
+            abi: x86_64
+          - build: android_x86
+            os: ubuntu-latest
+            target: i686-linux-android
+            abi: x86
 
     steps:
       - uses: actions/checkout@v6
 
+      - name: Setup Android NDK
+        if: contains(matrix.build, 'android')
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r26d
+          add-to-path: true
+          local-cache: true
+
       - name: Install ${{ matrix.rust }} toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ matrix.rust }}
           targets: ${{ matrix.target }}
 
       - name: Install aarch64 linker
-        if: matrix.build == 'linux-aarch64'
+        if: matrix.abi
         run: |
             sudo apt-get update
-            sudo apt-get install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      - name: Install cargo-ndk
+        if: matrix.abi
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
 
       - name: Build release binary
+        if: ${{ !matrix.abi }}
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
@@ -60,40 +85,54 @@ jobs:
           AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
         run: cargo build --release --locked --target ${{ matrix.target }}
 
-      - name: Strip release binary (linux and macos)
-        if: matrix.build == 'linux-x86_64' || matrix.build == 'macos-x86_64'
-        run: strip "target/${{ matrix.target }}/release/$BIN_NAME"
-
-      - name: Strip release binary (arm)
-        if: matrix.build == 'linux-aarch64'
-        run: aarch64-linux-gnu-strip "target/${{ matrix.target }}/release/$BIN_NAME"
+      - name: Build release binary
+        if: matrix.abi
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: cargo ndk -t ${{ matrix.abi }} build --release --locked
 
       - name: Build archive
         shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
+          name="${BIN_NAME}_${TAG}_${{ matrix.build }}"
           mkdir -p dist
           cp LICENSE dist/
-          cat << 'EOF' > dist/README.md
-          # jb cli
-
-          Source: https://github.com/HBcao233/jb-rs/
-
-          Usage: jb [Options] <url>
-          Options:
-          * -i, --info  information only.
-          * -h, --help  show this help message.
-
-          # Supported Platforms
-          * Bilibili
-          EOF
+          cp README.md dist/
 
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
             cp "target/${{ matrix.target }}/release/$BIN_NAME.exe" dist/
           else
             cp "target/${{ matrix.target }}/release/$BIN_NAME" dist/
           fi
+          cd dist && tar -czf "$name.tar.gz" *
+          echo "ASSET=$name.tar.gz" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ env.BIN_NAME }}_${{ github.ref_name }}_${{ matrix.build }}
-          path: dist
+          path: ${{ env.ASSET }}
+          archive: false
+          if-no-files-found: error
+
+  release:
+    needs: dist
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: artifacts
+        run: sha256sum * > SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: artifacts/*
+          generate_release_notes: true
+          draft: true
