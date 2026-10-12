@@ -13,8 +13,12 @@ target/release/jb <url>
 Usage: jb [Options] <url>
 
 Options:
-  -i, --info  information only.
-  -h, --help  show this help message.
+  -c cookie, --cookie cookie      Use cookie
+  -i, --info                      Only show infomation, no download.
+  -h, --help                      Show help message.
+  -q, --quality                   Choose quality of video.
+  --keep-temps                    Do not delete the temporary files.
+  --allow-mcdn                    Allows to using mCDN/PCDN links to download.
 ```
 
 # Supported Platforms

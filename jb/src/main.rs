@@ -50,12 +50,12 @@ async fn async_main() {
 {GREEN}Usage{NC}: jb [Options] <url>
 
 {BLUE}Options{NC}:
-  -c [cookie], --cookie [cookie]  Use cookie
+  -c cookie, --cookie cookie      Use cookie
   -i, --info                      Only show infomation, no download.
   -h, --help                      Show this message.
   -q, --quality                   Choose quality of video.
   --keep-temps                    Do not delete the temporary files.
-  --allow-mcdn                    Allows to using mCDN/PCDN links to download
+  --allow-mcdn                    Allows to using mCDN/PCDN links to download.
 
 {BLUE}tip{NC}: set environment variable `RUST_LOG=log` to enable verbose.
 "
