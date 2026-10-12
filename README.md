@@ -19,3 +19,7 @@ Options:
 
 # Supported Platforms
 * Bilibili
+
+# Similar projects
+* [lux](https://github.com/iawia002/lux)
+* [yt-dlp](https://github.com/yt-dlp/yt-dlp)
