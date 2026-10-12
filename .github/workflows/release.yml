@@ -130,8 +130,8 @@ jobs:
       - name: Generate checksums
         run: |
             cd artifacts
-            sha256sum * | awk '{print $2, $1}' > ../SHA256SUMS.txt
-            mv ../SHA256SUMS.txt ./
+            sha256sum * | awk '{print $2, $1}' > ../check_SHA256SUMS.txt
+            mv ../check_SHA256SUMS.txt ./
 
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64  # v3.0.3
         with:
