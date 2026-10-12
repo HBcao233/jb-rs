@@ -6,6 +6,7 @@ mod core;
 use std::env;
 use std::fs;
 use std::io;
+use std::path::PathBuf;
 use std::process::exit;
 
 use tokio::runtime;
@@ -21,11 +22,18 @@ const BLUE: &str = "\x1b[1;34m";
 const CYAN: &str = "\x1b[36m";
 const YELLOW: &str = "\x1b[1;33m";
 
+fn home_dir() -> Option<PathBuf> {
+    Some(env::home_dir()?.join(".jb"))
+}
+
 /// crawler options.
 #[derive(Default, Clone, Debug)]
 pub struct Options {
     info: bool,
     cookies: Vec<(String, String)>,
+    quality: Option<String>,
+    keep_temps: bool,
+    allow_mcdn: bool,
 }
 
 async fn async_main() {
@@ -42,9 +50,14 @@ async fn async_main() {
 {GREEN}Usage{NC}: jb [Options] <url>
 
 {BLUE}Options{NC}:
-  -c [cookie], --cookie [cookie]  使用 cookie
-  -i, --info                      仅显示信息不进行下载
-  -h, --help                      显示此帮助信息
+  -c [cookie], --cookie [cookie]  Use cookie
+  -i, --info                      Only show infomation, no download.
+  -h, --help                      Show this message.
+  -q, --quality                   Choose quality of video.
+  --keep-temps                    Do not delete the temporary files.
+  --allow-mcdn                    Allows to using mCDN/PCDN links to download
+
+{BLUE}tip{NC}: set environment variable `RUST_LOG=log` to enable verbose.
 "
                 );
                 exit(0);
@@ -74,7 +87,8 @@ async fn async_main() {
                         };
                         let cookies = cookies.trim();
                         let cookies = parse_cookies(cookies);
-                        trace!(?cookies, "使用 cookies");
+                        trace!(?cookies, "Use cookies");
+
                         options.cookies = cookies;
                     }
                     _ => {
@@ -82,6 +96,20 @@ async fn async_main() {
                         exit(1);
                     }
                 }
+            } else if arg == "-q" || arg == "--quality" {
+                match args.next() {
+                    Some(quality) if !quality.is_empty() => {
+                        options.quality = Some(quality);
+                    }
+                    _ => {
+                        eprintln!("{RED}error{NC}: \"{arg}\" must be followed by a value.");
+                        exit(1);
+                    }
+                }
+            } else if arg == "--keep-temps" {
+                options.keep_temps = true;
+            } else if arg == "--allow-mcdn" {
+                options.allow_mcdn = true;
             }
         } else {
             if input.is_some() {

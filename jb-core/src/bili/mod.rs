@@ -173,7 +173,6 @@ where
         message,
         data,
     } = response.json().await?;
-    info!(?code, ?message, "result");
     match code {
         0 | -352 => {
             if let Some(v_voucher) = header_voucher {
@@ -190,16 +189,16 @@ where
             return Err(BiliError::RiskControl);
         }
         _ => {
-            error!(code, message, "未知状态码");
-            return Err(BiliError::Api(format!("未知状态码 {code}")));
+            error!(code, message, "Unknown code");
+            return Err(BiliError::Api(format!("Unknown code: {code}")));
         }
     }
 
     let pretty = serde_json::to_string_pretty(&data)?;
     if let Err(e) = fs::write(&cache_file, &pretty).await {
-        error!("缓存json文件失败: {e:?}");
+        error!("Failed to write cache json: {e:?}");
     } else {
-        info!("写入缓存: {}", cache_file.display());
+        info!("Write cache: {}", cache_file.display());
     }
 
     Ok(serde_json::from_value(data)?)
@@ -223,14 +222,14 @@ where
         Ok(text) => match serde_json::from_str(&text) {
             Ok(value) => Some(value),
             Err(e) => {
-                warn!("缓存解析失败: {e}");
+                warn!("Failed to parse cached json: {e}");
                 None
             }
         },
         Err(_) => None,
     };
     let res: BiliDetail = if let Some(res) = cache {
-        info!("使用缓存: {}", cache_file.display());
+        info!("Using cached json: {}", cache_file.display());
         res
     } else {
         let mut query = vec![

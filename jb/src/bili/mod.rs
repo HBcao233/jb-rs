@@ -1,15 +1,16 @@
-mod data_source;
-
 use std::borrow::Cow;
+use std::fmt::Write;
+use std::path::PathBuf;
 use std::process::exit;
 
 use indicatif::BinaryBytes;
 use jb_core::bili::types::{self, BiliId};
+use jb_core::bili::{fetch_bili_info, fetch_playurl, parse_desc};
 use regex::{Regex, regex};
+use tokio::fs;
 use tracing::{error, info};
 use url::Url;
 
-use self::data_source::{get_bili_info, get_playurl, parse_desc};
 use crate::curl::{get_client, stream_download};
 use crate::ffmpeg::FFmpeg;
 use crate::{
@@ -32,8 +33,8 @@ pub async fn crawler_bili(input: &str, options: &Options) {
         let response = match client.get(url).send().await {
             Ok(r) => r,
             Err(e) => {
-                error!("b23.tv请求失败: {e}");
-                eprintln!("{RED}error{NC}: 短链解析失败");
+                error!("failed to request b23.tv: {e}");
+                eprintln!("{RED}error{NC}: failed to parse bilibili short link.");
                 exit(400);
             }
         };
@@ -44,14 +45,14 @@ pub async fn crawler_bili(input: &str, options: &Options) {
         {
             text = location.to_string();
         } else {
-            eprintln!("{RED}error{NC}: 短链解析失败");
+            eprintln!("{RED}error{NC}: failed to parse bilibili short link.");
             exit(400);
         }
     }
 
     if let Some(caps) = re.captures(&text) {
         let (_, [id]) = caps.extract();
-        info!("input: {id}");
+        info!("bilibili video id: {id}");
         let bili_id = if id.starts_with('a') {
             let id = id.strip_prefix("av").unwrap();
             BiliId::AV(id.parse().unwrap())
@@ -60,11 +61,11 @@ pub async fn crawler_bili(input: &str, options: &Options) {
         };
 
         let Some((aid, bvid)) = bili_id.to_raw() else {
-            eprintln!("{RED}error{NC}: 无效的 avid/bvid: {id}");
+            eprintln!("{RED}error{NC}: Invalid avid/bvid: {id}");
             exit(400);
         };
         if let Err(e) = parse_bili(aid, bvid, options).await {
-            eprintln!("{RED}error{NC}: bili解析失败: {e}");
+            eprintln!("{RED}error{NC}: failed to parse bilibili video id: {e}");
             exit(500);
         }
         exit(0);
@@ -76,6 +77,9 @@ async fn parse_bili(
     bvid: String,
     options: &Options,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let cache_dir = crate::home_dir().unwrap_or(PathBuf::from(".")).join("bili");
+    fs::create_dir_all(&cache_dir).await?;
+
     let client = get_client().build()?;
     let referer = format!("https://www.bilibili.com/video/{}/", bvid);
     let headers = vec![("referer", referer)];
@@ -86,7 +90,7 @@ async fn parse_bili(
         pic,
         pages,
         ..
-    } = get_bili_info(&client, aid, &bvid, &options.cookies).await?;
+    } = fetch_bili_info(&client, aid, &bvid, None, &options.cookies, &cache_dir).await?;
     println!();
     println!(" {CYAN}{}{NC}  哔哩哔哩 Bilibili", align_left("Site:", 13));
     println!(" {CYAN}{}{NC}  {}", align_left("BVid:", 13), bvid);
@@ -112,11 +116,12 @@ async fn parse_bili(
         }
     }
     let types::Page { cid, .. } = page.unwrap_or_else(|| {
-        eprintln!("{RED}error{NC}: 分集 {p} 不存在");
+        eprintln!("{RED}error{NC}: no video with page=`{p}` found.");
         exit(1)
     });
 
-    let playurl = get_playurl(&client, aid, &bvid, cid, &options.cookies).await?;
+    let playurl =
+        fetch_playurl(&client, aid, &bvid, cid, None, &options.cookies, &cache_dir).await?;
 
     let quality = playurl.quality.unwrap();
     let accept_quality = playurl.accept_quality.unwrap();
@@ -186,21 +191,39 @@ async fn parse_bili(
     }
 
     if videos.is_empty() {
-        eprintln!("{RED}error{NC}: 未解析到流信息");
+        eprintln!("{RED}error{NC}: no stream information was parsed.");
         exit(500);
     };
+    videos.sort_by(|a, b| {
+        // id 降序, codecid 升序
+        b.id.cmp(&a.id).then_with(|| a.codecid.cmp(&b.codecid))
+    });
 
     let width = terminal_width().unwrap_or(59) as usize;
 
     let pad = if width >= 80 { "     " } else { "   " };
+
+    let audio = audios.into_iter().max_by_key(|x| x.id);
+    let show_videos = if let Some(ref expected_quality) = options.quality {
+        find_expected_quality_video(&videos, expected_quality)
+    } else {
+        videos.iter().collect()
+    };
+
     if options.info {
+        if show_videos.is_empty()
+            && let Some(ref expected_quality) = options.quality
+        {
+            eprintln!("{RED}error{NC}: no videos with quality=`{expected_quality}` found.");
+            exit(400);
+        }
+
         println!(" {CYAN}Videos:{NC}");
 
-        let audio = audios.into_iter().max_by_key(|x| x.id);
-        for video in videos {
+        for video in show_videos {
             print_stream(
                 pad,
-                &video,
+                video,
                 audio.as_ref(),
                 &accept_quality,
                 &accept_description,
@@ -209,19 +232,23 @@ async fn parse_bili(
 
         exit(0);
     } else {
+        let video = if options.quality.is_some() {
+            show_videos.into_iter().min_by_key(|v| v.codecid)
+        } else {
+            videos.first()
+        }
+        .unwrap_or_else(|| {
+            eprintln!(
+                "{RED}error{NC}: no video with quality=`{}` found.",
+                options.quality.as_ref().unwrap()
+            );
+            exit(400);
+        });
         println!(" {CYAN}Selected video:{NC}");
-        let audio = audios.into_iter().max_by_key(|x| x.id);
-        let video = videos
-            .into_iter()
-            .max_by(|a, b| {
-                // id 降序 codecid 升序
-                a.id.cmp(&b.id).then_with(|| b.codecid.cmp(&a.codecid))
-            })
-            .unwrap();
 
         print_stream(
             pad,
-            &video,
+            video,
             audio.as_ref(),
             &accept_quality,
             &accept_description,
@@ -233,121 +260,145 @@ async fn parse_bili(
             video.id,
             audio.as_ref().map(|a| a.id).unwrap_or_default()
         );
-        let video_name = format!(
-            "{key}_video_{}{}.mp4",
-            video.id,
-            if let Some(c) = video.codecid {
-                format!("-{c}")
-            } else {
-                String::new()
-            }
-        );
 
-        let mut index = 0;
-        loop {
-            let url = match video.urls.get(index) {
-                Some(url) => {
-                    let u = Url::parse(url).unwrap();
-                    info!("CDN: {}", u.host().unwrap());
-                    println!(
-                        " {GREEN}Downloading{NC} {video_name}{}",
-                        if index == 0 {
-                            String::new()
-                        } else {
-                            format!("Retry {index}")
-                        }
-                    );
-                    url
+        if !fs::try_exists(&name).await? {
+            let video_name = format!(
+                "{key}_video_{}{}.mp4",
+                video.id,
+                if let Some(c) = video.codecid {
+                    format!("-{c}")
+                } else {
+                    String::new()
                 }
-                None => {
-                    eprintln!("{RED}error{NC}: 所有视频下载尝试均失败");
-                    exit(1);
-                }
-            };
-            match stream_download(&client, url, &video_name, &headers).await {
-                Ok(_) => {
-                    break;
-                }
-                Err(e) => {
-                    eprintln!("{YELLOW}warn{NC}: 下载失败: {e}");
-                }
-            }
-            index += 1;
-        }
+            );
 
-        println!();
-        if let Some(a) = audio {
-            let audio_name = format!("{key}_audio_{}.mp4", a.id);
+            let mut urls = video
+                .urls
+                .iter()
+                .filter(|url| options.allow_mcdn || !url.contains("mcdn.bilivideo"))
+                .enumerate();
 
-            let mut index = 0;
             loop {
-                let url = match a.urls.get(index) {
-                    Some(url) => {
+                let url = match urls.next() {
+                    Some((index, url)) => {
                         let u = Url::parse(url).unwrap();
                         info!("CDN: {}", u.host().unwrap());
                         println!(
-                            " {GREEN}Downloading{NC} {audio_name}{}",
+                            " {GREEN}Downloading{NC} {video_name}{}",
                             if index == 0 {
                                 String::new()
                             } else {
-                                format!(" Retry {index}")
+                                format!("Retry {index}")
                             }
                         );
                         url
                     }
                     None => {
-                        eprintln!("{RED}error{NC}: 所有视频下载尝试均失败");
+                        eprintln!("{RED}error{NC}: download failed");
                         exit(1);
                     }
                 };
-                match stream_download(&client, url, &audio_name, &headers).await {
+                match stream_download(&client, url, &video_name, &headers).await {
                     Ok(_) => {
                         break;
                     }
                     Err(e) => {
-                        eprintln!("{YELLOW}warn{NC}: 下载失败: {e}");
+                        eprintln!("{YELLOW}warn{NC}: download try failed: {e}");
                     }
                 }
-                index += 1;
             }
 
-            println!(" {GREEN}Merging{NC} {name}");
-            match FFmpeg::new()
-                .arg("-i")
-                .arg(&audio_name)
-                .arg("-i")
-                .arg(&video_name)
-                .args(["-c:a", "copy", "-c:v", "copy", "-y"])
-                .arg(&name)
-                .run()
-                .await
-            {
-                Ok(status) => {
-                    if !status.success() {
-                        eprintln!(
-                            "{RED}error{NC}: ffmpeg exited with status: {:?}",
-                            status.code()
-                        );
+            println!();
+            if let Some(au) = audio {
+                let audio_name = format!("{key}_audio_{}.mp4", au.id);
+
+                let mut urls = au
+                    .urls
+                    .iter()
+                    .filter(|url| options.allow_mcdn || !url.contains("mcdn.bilivideo"))
+                    .enumerate();
+
+                loop {
+                    let url = match urls.next() {
+                        Some((index, url)) => {
+                            let u = Url::parse(url).unwrap();
+                            info!("CDN: {}", u.host().unwrap());
+                            println!(
+                                " {GREEN}Downloading{NC} {audio_name}{}",
+                                if index == 0 {
+                                    String::new()
+                                } else {
+                                    format!(" Retry {index}")
+                                }
+                            );
+                            url
+                        }
+                        None => {
+                            eprintln!("{RED}error{NC}: download failed.");
+                            exit(1);
+                        }
+                    };
+                    match stream_download(&client, url, &audio_name, &headers).await {
+                        Ok(_) => {
+                            break;
+                        }
+                        Err(e) => {
+                            eprintln!("{YELLOW}warn{NC}: download try failed: {e}");
+                        }
+                    }
+                }
+
+                println!(" {GREEN}Merging{NC} {name}");
+                match FFmpeg::new()
+                    .arg("-i")
+                    .arg(&audio_name)
+                    .arg("-i")
+                    .arg(&video_name)
+                    .args(["-c:a", "copy", "-c:v", "copy", "-y"])
+                    .arg(&name)
+                    .run()
+                    .await
+                {
+                    Ok(status) => {
+                        if !status.success() {
+                            eprintln!(
+                                "{RED}error{NC}: ffmpeg exited with status: {:?}",
+                                status.code()
+                            );
+                            exit(1);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("{RED}error{NC}: merging video and audio failed: {e}");
                         exit(1);
                     }
                 }
+
+                if !options.keep_temps {
+                    fs::remove_file(video_name).await?;
+                    fs::remove_file(audio_name).await?;
+                }
+            } else {
+                if options.keep_temps {
+                    fs::rename(video_name, name).await?;
+                } else {
+                    fs::copy(video_name, name).await?;
+                }
+            }
+
+            let pic_path = format!("{key}_pic.jpg");
+            println!(" {GREEN}Downloading{NC} {pic_path}");
+            match stream_download(&client, &pic, &pic_path, &headers).await {
+                Ok(_) => {}
                 Err(e) => {
-                    eprintln!("{RED}error{NC}: merging video and audio failed: {e}");
+                    eprintln!("{RED}error{NC}: {e}");
                     exit(1);
                 }
             }
-        } else {
-            tokio::fs::copy(video_name, name).await?;
-        }
 
-        let pic_path = format!("{key}_pic.jpg");
-        println!(" {GREEN}Downloading{NC} {pic_path}");
-        match stream_download(&client, &pic, &pic_path, &headers).await {
-            Ok(_) => {}
-            Err(e) => {
-                eprintln!("{RED}error{NC}: {e}");
-                exit(1);
-            }
+            println!(" {GREEN}Download successful{NC}")
+        } else {
+            println!(" {GREEN}Downloaded.{NC}")
         }
     }
 
@@ -391,12 +442,62 @@ fn print_stream(
         quality.push_str(c);
     }
     let size = BinaryBytes(size);
-    println!(
-        "{pad}{BLUE}[{}{}]{NC}",
-        video.id,
-        video.codecid.map(|x| format!("-{x}")).unwrap_or_default()
-    );
+    let mut q = video.id.to_string();
+    if let Some(codecid) = video.codecid {
+        q.push('-');
+        write!(q, "{codecid}").unwrap();
+    }
+
+    println!("{pad}{BLUE}[{}]{NC}", q);
     println!("{pad}{CYAN}{}{NC}  {}", align_left("Quality:", 10), quality);
     println!("{pad}{CYAN}{}{NC}  {}", align_left("Size:", 10), size);
+    println!(
+        "{pad}{CYAN}{}{NC}  jb -q {} ...",
+        align_left("# Download with", 10),
+        q
+    );
     println!();
+}
+
+fn parse_expected_quality(s: &str) -> Result<(i32, Option<i32>), &'static str> {
+    let (id_part, code_part) = match s.split_once('-') {
+        Some((id, code)) => (id, Some(code)),
+        None => (s, None),
+    };
+
+    let id: i32 = id_part.parse().map_err(|_| "invalid id")?;
+    if id < 0 {
+        return Err("id must be non-negative");
+    }
+
+    let codecid = match code_part {
+        Some(code) => {
+            let c: i32 = code.parse().map_err(|_| "invalid codecid")?;
+            if c < 0 {
+                return Err("codecid must be non-negative");
+            }
+            Some(c)
+        }
+        None => None,
+    };
+
+    Ok((id, codecid))
+}
+
+fn find_expected_quality_video<'a>(
+    videos: &'a [Video],
+    expected_quality: &str,
+) -> Vec<&'a Video<'a>> {
+    let (id, codecid) = match parse_expected_quality(expected_quality) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("{RED}error{NC}: {e}");
+            exit(400);
+        }
+    };
+
+    videos
+        .iter()
+        .filter(|v| v.id == id && codecid.is_none_or(|c| v.codecid == Some(c)))
+        .collect()
 }

@@ -198,6 +198,8 @@ pub struct Page {
     pub first_frame: String,
     /// 序号, 从 1 开始
     pub page: u16,
+    /// 分集标题
+    pub part: String,
 }
 
 /// 统计信息
