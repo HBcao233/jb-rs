@@ -18,31 +18,31 @@ jobs:
       fail-fast: false # don't fail other jobs if one fails
       matrix:
         include:
-          - build: linux_x86_64
+          - build: linux-x86_64
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-          - build: linux_aarch64
+          - build: linux-aarch64
             os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-          - build: macos_x86_64
+          - build: macos-x86_64
             os: macos-latest
             target: x86_64-apple-darwin
-          - build: windows_x86_64
+          - build: windows-x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
-          - build: android_arm64_v8a
+          - build: android-arm64_v8a
             os: ubuntu-latest
             target: aarch64-linux-android
             abi: arm64-v8a
-          - build: android_armeabi_v7a
+          - build: android-armeabi_v7a
             os: ubuntu-latest
             target: armv7-linux-androideabi
             abi: armeabi-v7a
-          - build: android_x86_64
+          - build: android-x86_64
             os: ubuntu-latest
             target: x86_64-linux-android
             abi: x86_64
-          - build: android_x86
+          - build: android-x86
             os: ubuntu-latest
             target: i686-linux-android
             abi: x86
@@ -51,7 +51,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Setup Android NDK
-        if: contains(matrix.build, 'android')
+        if: matrix.abi
         uses: nttld/setup-ndk@v1
         id: setup-ndk
         with:
@@ -65,7 +65,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install aarch64 linker
-        if: matrix.abi
+        if: matrix.build == 'linux-aarch64'
         run: |
             sudo apt-get update
             sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
@@ -96,22 +96,22 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          name="${BIN_NAME}_${TAG}_${{ matrix.build }}"
-          mkdir -p dist
-          cp LICENSE dist/
-          cp README.md dist/
+          name="${BIN_NAME}-${TAG}-${{ matrix.build }}"
+          mkdir -p $name
+          cp LICENSE $name
+          cp README.md $name
 
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp "target/${{ matrix.target }}/release/$BIN_NAME.exe" dist/
+            cp "target/${{ matrix.target }}/release/$BIN_NAME.exe" $name
           else
-            cp "target/${{ matrix.target }}/release/$BIN_NAME" dist/
+            cp "target/${{ matrix.target }}/release/$BIN_NAME" $name
           fi
-          cd dist && tar -czf "$name.tar.gz" *
-          echo "ASSET=dist/$name.tar.gz" >> "$GITHUB_ENV"
+          tar -czf "$name.tar.gz" $name
+          echo "ASSET=$name.tar.gz" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.BIN_NAME }}_${{ github.ref_name }}_${{ matrix.build }}
+          name: ${{ env.BIN_NAME }}-${{ github.ref_name }}-${{ matrix.build }}
           path: ${{ env.ASSET }}
           archive: false
           if-no-files-found: error
@@ -122,16 +122,18 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           path: artifacts
           merge-multiple: true
 
       - name: Generate checksums
-        working-directory: artifacts
-        run: sha256sum * > SHA256SUMS.txt
+        run: |
+            cd artifacts
+            sha256sum * | awk '{print $2, $1}' > ../SHA256SUMS.txt
+            mv ../SHA256SUMS.txt ./
 
-      - uses: softprops/action-gh-release@v3
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64  # v3.0.3
         with:
           files: artifacts/*
           generate_release_notes: true
