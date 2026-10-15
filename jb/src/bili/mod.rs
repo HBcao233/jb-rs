@@ -272,23 +272,23 @@ async fn parse_bili(
                 }
             );
 
-            let mut urls = video
-                .urls
-                .iter()
-                .filter(|url| options.allow_mcdn || !url.contains("mcdn.bilivideo"))
-                .enumerate();
-
+            let mut urls = video.urls.iter();
+            let mut i = 0;
             loop {
                 let url = match urls.next() {
-                    Some((index, url)) => {
+                    Some(url) => {
+                        if !options.allow_mcdn && url.contains("mcdn.bilivideo") {
+                            continue;
+                        }
+
                         let u = Url::parse(url).unwrap();
                         info!("CDN: {}", u.host().unwrap());
                         println!(
                             " {GREEN}Downloading{NC} {video_name}{}",
-                            if index == 0 {
+                            if i == 0 {
                                 String::new()
                             } else {
-                                format!("Retry {index}")
+                                format!("Retry {i}")
                             }
                         );
                         url
@@ -303,32 +303,33 @@ async fn parse_bili(
                         break;
                     }
                     Err(e) => {
-                        eprintln!("{YELLOW}warn{NC}: download try failed: {e}");
+                        eprintln!("{YELLOW}warn{NC}: download try {i} failed: {e}");
                     }
                 }
+                i += 1;
             }
 
             println!();
             if let Some(au) = audio {
                 let audio_name = format!("{key}_audio_{}.mp4", au.id);
 
-                let mut urls = au
-                    .urls
-                    .iter()
-                    .filter(|url| options.allow_mcdn || !url.contains("mcdn.bilivideo"))
-                    .enumerate();
-
+                let mut urls = au.urls.iter();
+                let mut i = 0;
                 loop {
                     let url = match urls.next() {
-                        Some((index, url)) => {
+                        Some(url) => {
+                            if !options.allow_mcdn && url.contains("mcdn.bilivideo") {
+                                continue;
+                            }
+
                             let u = Url::parse(url).unwrap();
                             info!("CDN: {}", u.host().unwrap());
                             println!(
                                 " {GREEN}Downloading{NC} {audio_name}{}",
-                                if index == 0 {
+                                if i == 0 {
                                     String::new()
                                 } else {
-                                    format!(" Retry {index}")
+                                    format!(" Retry {i}")
                                 }
                             );
                             url
@@ -343,9 +344,10 @@ async fn parse_bili(
                             break;
                         }
                         Err(e) => {
-                            eprintln!("{YELLOW}warn{NC}: download try failed: {e}");
+                            eprintln!("{YELLOW}warn{NC}: download try {i} failed: {e}");
                         }
                     }
+                    i += 1;
                 }
 
                 println!(" {GREEN}Merging{NC} {name}");
