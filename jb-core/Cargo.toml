@@ -9,12 +9,12 @@ tokio = { version = "1.52.3", default-features = false, features = [] }
 tracing.workspace = true
 wreq.workspace = true
 
-serde = { version = "1.0", features = ["derive"] }
-serde_json = { version = "1.0" }
-form_urlencoded = { version = "1.2" }
-md5 = { version = "0.8" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.151" }
+md5 = { version = "0.8.1" }
 thiserror.workspace = true
 rand = "0.10.3"
+form_urlencoded = "1.2.2"
 
 [dev-dependencies]
 wreq-util.workspace = true
