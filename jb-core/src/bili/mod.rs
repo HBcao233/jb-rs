@@ -212,7 +212,7 @@ where
             info!(url, message, "not found");
             if message == "啥都木有" {
                 return Err(BiliError::Api(
-                    "视频不存在，可能是仅限中国地区访问的视频".to_string(),
+                    "视频不存在，可能是带有地区限制的视频".to_string(),
                 ));
             } else {
                 return Err(BiliError::NotFound);
