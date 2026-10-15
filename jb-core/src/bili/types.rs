@@ -79,7 +79,7 @@ pub enum BiliError {
     Io(#[from] tokio::io::Error),
 
     /// http error
-    #[error("请求失败: {0}")]
+    #[error("请求失败")]
     Http(#[from] wreq::Error),
 
     /// StatusCode is not 200
@@ -110,7 +110,7 @@ pub enum BiliError {
 #[derive(Deserialize)]
 pub(super) struct BiliResult {
     pub(super) code: i32,
-    pub(super) data: serde_json::Value,
+    pub(super) data: Option<serde_json::Value>,
     pub(super) message: String,
 }
 

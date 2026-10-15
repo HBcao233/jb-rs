@@ -4,7 +4,7 @@ pub mod bili;
 pub mod pixiv;
 pub mod youtube;
 
-/// encode cookies
+/// encode cookies, with format "key=value; key=value".
 pub fn encode_cookies<K, V>(cookies: impl IntoIterator<Item = (K, V)>) -> String
 where
     K: AsRef<str>,

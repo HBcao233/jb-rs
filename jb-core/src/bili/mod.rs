@@ -11,7 +11,7 @@ use rand::distr::Alphanumeric;
 use rand::{RngExt, random_range};
 use serde::de::DeserializeOwned;
 use tokio::fs;
-use tracing::{error, info, warn};
+use tracing::{error, info, trace, warn};
 use wreq::header::{HeaderMap, HeaderName, HeaderValue, InvalidHeaderValue};
 use wreq::{Client, StatusCode};
 
@@ -40,6 +40,7 @@ pub async fn get_mixin_key(client: &Client) -> wreq::Result<String> {
     let img_key = img_key.split('.').next().unwrap();
     let sub_key = sub_url.rsplit('/').next().unwrap();
     let sub_key = sub_key.split('.').next().unwrap();
+    trace!(img_key, sub_key);
 
     let orig: Vec<char> = img_key.chars().chain(sub_key.chars()).collect();
     let mixin_key: String = MIXIN_KEY_ENC_TAB.iter().fold(String::new(), |mut acc, i| {
@@ -61,12 +62,26 @@ pub fn wbi(query: &mut Vec<(&'_ str, String)>, mixin_key: &str) {
         v.retain(|c| !matches!(c, '!' | '\'' | '(' | ')' | '*'));
         (k, v)
     });
-    let encoded: String = form_urlencoded::Serializer::new(String::new())
+    let mut encoded = form_urlencoded::Serializer::new(String::new())
         .extend_pairs(iter)
         .finish();
-    let w_rid = format!("{:x}", md5::compute(encoded + mixin_key));
+    encoded.push_str(mixin_key);
+    let w_rid = format!("{:x}", md5::compute(encoded));
 
     query.push(("w_rid", w_rid));
+}
+
+/// 随机生成 dm_img_inter
+pub fn random_dm_img_inter() -> String {
+    let wh0 = random_range(6500..6800);
+    let wh1 = random_range(2200..2300);
+    let wh2 = random_range(30..100);
+    let of0 = random_range(5..500);
+    let of1 = random_range(5..1000);
+    let of2 = random_range(5..500);
+    format!(
+        r#"{{"ds":[{{"t":2,"c":"YnB4LXBsYXllci12aWRlby1pbnB1dGJhci13cm","p":[1710,82,2100],"s":[420,1763,2424]}},{{"t":2,"c":"YnB4LXBsYXllci1kbS1idG4tc2VuZCBidWkgYnVpLWJ1dHRvbg","p":[2365,15,1605],"s":[5,250,130]}}],"wh":[{wh0},{wh1},{wh2}],"of":[{of0},{of1},{of2}]}})"#
+    )
 }
 
 /// 随机生成 dm_img_str, dm_cover_img_str, dm_img_list, dm_img_inter
@@ -101,14 +116,12 @@ pub fn random_dm() -> Vec<(&'static str, String)> {
         .take(74)
         .map(char::from)
         .collect();
+
     vec![
         ("dm_img_list", dm_img_list),
         ("dm_img_str", dm_img_str),
         ("dm_cover_img_str", dm_cover_img_str),
-        (
-            "dm_img_inter",
-            r#"{"ds":[],"wh":[6623,2257,69],"of":[78,154,70]})"#.to_string(),
-        ),
+        ("dm_img_inter", random_dm_img_inter()),
     ]
 }
 
@@ -134,6 +147,17 @@ where
         let session = format!("{:x}", md5::compute(session));
         query.push(("session", session));
     }
+    query.extend([
+        (
+            "x-bili-device-req-json",
+            r#"{"platform":"web","device":"pc","mobi_app":"web_cn"}"#.to_string(),
+        ),
+        (
+            "x-bili-locale-json",
+            r#"{"c_locale":{"language":"zh","script":"Hans"},"always_translate":false}"#
+                .to_string(),
+        ),
+    ]);
     wbi(query, &mixin_key);
 
     let mut extra: Vec<(&str, String)> = Vec::new();
@@ -155,9 +179,10 @@ where
         .into_iter()
         .map(|(key, value)| Ok((HeaderName::from_static(key), HeaderValue::from_str(&value)?)))
         .collect::<Result<HeaderMap, InvalidHeaderValue>>()?;
+
     let response = client
         .get(url)
-        .query(&query)
+        .query(query)
         .headers(headers)
         .header("cookie", cookie)
         .send()
@@ -177,13 +202,21 @@ where
         0 | -352 => {
             if let Some(v_voucher) = header_voucher {
                 return Err(BiliError::Voucher(v_voucher.to_str().unwrap().to_string()));
-            } else if let Some(v_voucher) = data["v_voucher"].as_str() {
+            } else if let Some(ref d) = data
+                && let Some(v_voucher) = d["v_voucher"].as_str()
+            {
                 return Err(BiliError::Voucher(v_voucher.to_string()));
             }
         }
         -404 | 62002 | 62004 => {
-            info!(message, "not found");
-            return Err(BiliError::NotFound);
+            info!(url, message, "not found");
+            if message == "啥都木有" {
+                return Err(BiliError::Api(
+                    "视频不存在，可能是仅限中国地区访问的视频".to_string(),
+                ));
+            } else {
+                return Err(BiliError::NotFound);
+            }
         }
         412 => {
             return Err(BiliError::RiskControl);
@@ -194,14 +227,18 @@ where
         }
     }
 
-    let pretty = serde_json::to_string_pretty(&data)?;
-    if let Err(e) = fs::write(&cache_file, &pretty).await {
-        error!("Failed to write cache json: {e:?}");
-    } else {
-        info!("Write cache: {}", cache_file.display());
-    }
+    if let Some(d) = data {
+        let pretty = serde_json::to_string_pretty(&d)?;
+        if let Err(e) = fs::write(&cache_file, &pretty).await {
+            error!("Failed to write cache json: {e:?}");
+        } else {
+            info!("Write cache: {}", cache_file.display());
+        }
 
-    Ok(serde_json::from_value(data)?)
+        Ok(serde_json::from_value(d)?)
+    } else {
+        Err(BiliError::Api("No data".to_string()))
+    }
 }
 
 /// 获取 Bilibili 视频信息
@@ -241,6 +278,21 @@ where
         if let Some(ref g) = grisk_id {
             query.push(("gaia_vtoken", g.to_string()));
         }
+
+        query.push(("dm_img_list", String::from("[]")));
+        // base64_encode("WebGL 1.0 (OpenGL ES 2.0 Chromium)")[0..len-2]
+        query.push((
+            "dm_img_str",
+            String::from("V2ViR0wgMS4wIChPcGVuR0wgRVMgMi4wIENocm9taXVtKQ"),
+        ));
+        // base64_encode("ANGLE (ARM, Mali-G57 MC2, OpenGL ES 3.2)Google Inc. (ARM)")[0..len-2]
+        query.push((
+            "dm_cover_img_str",
+            String::from(
+                "QU5HTEUgKEFSTSwgTWFsaS1HNTcgTUMyLCBPcGVuR0wgRVMgMy4yKUdvb2dsZSBJbmMuIChBUk",
+            ),
+        ));
+        query.push(("dm_img_inter", random_dm_img_inter()));
 
         let referer = format!("https://www.bilibili.com/video/{}/", bvid);
         let headers = [("referer", referer)];
@@ -312,15 +364,6 @@ where
         ("voice_balance", "1".to_string()),
         ("try_look", "1".to_string()),
         ("web_location", "1315873".to_string()),
-        (
-            "x-bili-device-req-json",
-            r#"{"platform":"web","device":"pc","mobi_app":"web_cn"}"#.to_string(),
-        ),
-        (
-            "x-bili-locale-json",
-            r#"{"c_locale":{"language":"zh","script":"Hans"},"always_translate":false}"#
-                .to_string(),
-        ),
     ];
     query.extend(random_dm());
 
