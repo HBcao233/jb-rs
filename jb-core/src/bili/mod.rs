@@ -285,7 +285,7 @@ where
     }
 }
 
-/// 获取 Bilibili 视频详细信息. bilibili 网页版播放器使用的 api.
+/// 获取 Bilibili 视频详细信息. 需要 wbi 签名. bilibili 网页版播放器使用的 api.
 pub async fn fetch_bili_detail<K, V>(
     client: &Client,
     aid: u64,
@@ -355,7 +355,7 @@ where
     Ok(res.view)
 }
 
-/// 获取 Bilibili 视频信息
+/// 获取 Bilibili 视频信息. 需要 wbi 签名
 pub async fn fetch_bili_view<K, V>(
     client: &Client,
     aid: u64,
@@ -424,7 +424,7 @@ where
     Ok(res)
 }
 
-/// 获取 Bilibili 视频信息, 该 api 不会检查视频的地区限制
+/// 获取 Bilibili 视频信息. 无需 wbi 签名. 该 api 不会检查视频的地区限制
 pub async fn fetch_bili_info<K, V>(
     client: &Client,
     aid: u64,
