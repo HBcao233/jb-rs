@@ -1,6 +1,6 @@
 [package]
 name = "jb"
-version = "0.2.7"
+version = "0.3.0"
 authors = ["HBcao <hbcaoqaq@outlook.com>"]
 license = "MIT OR Apache-2.0"
 description = ""

@@ -90,7 +90,7 @@ async fn parse_bili(
         pic,
         pages,
         ..
-    } = fetch_bili_info(&client, aid, &bvid, None, &options.cookies, &cache_dir).await?;
+    } = fetch_bili_info(&client, aid, &bvid, &options.cookies, &cache_dir).await?;
     println!();
     println!(" {CYAN}{}{NC}  哔哩哔哩 Bilibili", align_left("Site:", 13));
     println!(" {CYAN}{}{NC}  {}", align_left("BVid:", 13), bvid);

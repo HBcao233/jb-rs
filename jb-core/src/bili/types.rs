@@ -7,20 +7,6 @@ use super::abv::{av2bv, bv2av};
 
 pub(super) const QN: u8 = 80;
 
-pub(super) const NAV_HOST: &str = "https://api.bilibili.com/x/web-interface/nav";
-pub(super) const INFO_HOST: &str = "https://api.bilibili.com/x/web-interface/wbi/view/detail";
-pub(super) const PLAYURL_HOST: &str = "https://api.bilibili.com/x/player/wbi/playurl";
-pub(super) const FINGER_HOST: &str = "https://api.bilibili.com/x/frontend/finger/spi";
-
-pub(super) const GAIA_VGATE_HOST: &str = "https://api.bilibili.com/x/gaia-vgate/v1/register";
-pub(super) const GAIA_VALIDATE_HOST: &str = "https://api.bilibili.com/x/gaia-vgate/v1/validate";
-
-pub(super) const MIXIN_KEY_ENC_TAB: [u8; 64] = [
-    46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42, 19, 29,
-    28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25,
-    54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52,
-];
-
 #[derive(Deserialize)]
 pub(super) struct FingerResult {
     pub(super) data: FingerData,
