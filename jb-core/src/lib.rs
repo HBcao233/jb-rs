@@ -4,6 +4,9 @@ pub mod bili;
 pub mod pixiv;
 pub mod youtube;
 
+#[cfg(feature = "jmcomic")]
+pub mod jmcomic;
+
 /// encode cookies, with format "key=value; key=value".
 pub fn encode_cookies<K, V>(cookies: impl IntoIterator<Item = (K, V)>) -> String
 where
