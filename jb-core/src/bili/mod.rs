@@ -164,15 +164,14 @@ pub fn random_dm() -> Vec<(&'static str, String)> {
 }
 
 /// bilibili 请求
-pub async fn fetch<T: DeserializeOwned, K, V>(
+pub async fn fetch_raw<K, V>(
     client: &Client,
     url: &str,
     query: &mut Vec<(&str, String)>,
     grisk_id: Option<&str>,
     cookies: &[(K, V)],
     headers: impl IntoIterator<Item = (&'static str, String)>,
-    cache_file: &PathBuf,
-) -> Result<T, BiliError>
+) -> Result<wreq::Response, BiliError>
 where
     K: AsRef<str>,
     V: AsRef<str>,
@@ -235,6 +234,24 @@ where
     if status != StatusCode::OK {
         return Err(BiliError::Status(status.as_u16()));
     }
+
+    Ok(response)
+}
+
+pub async fn fetch<T: DeserializeOwned, K, V>(
+    client: &Client,
+    url: &str,
+    query: &mut Vec<(&str, String)>,
+    grisk_id: Option<&str>,
+    cookies: &[(K, V)],
+    headers: impl IntoIterator<Item = (&'static str, String)>,
+    cache_file: &PathBuf,
+) -> Result<T, BiliError>
+where
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
+    let response = fetch_raw(client, url, query, grisk_id, cookies, headers).await?;
 
     let header_voucher = response.headers().get("x-bili-gaia-vvoucher").cloned();
     let BiliResult {

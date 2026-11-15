@@ -181,7 +181,7 @@ pub struct Page {
     /// 时长
     pub duration: u32,
     /// 第一帧图片链接
-    pub first_frame: String,
+    pub first_frame: Option<String>,
     /// 序号, 从 1 开始
     pub page: u16,
     /// 分集标题
