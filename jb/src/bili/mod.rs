@@ -277,12 +277,13 @@ async fn parse_bili(
             loop {
                 let url = match urls.next() {
                     Some(url) => {
-                        if !options.allow_mcdn && url.contains("mcdn.bilivideo") {
+                        let u = Url::parse(url).unwrap();
+                        let host = u.host_str().unwrap();
+                        if !options.allow_mcdn && is_mcdn(&host) {
                             continue;
                         }
 
-                        let u = Url::parse(url).unwrap();
-                        info!("CDN: {}", u.host().unwrap());
+                        info!("CDN: {}", host);
                         println!(
                             " {GREEN}Downloading{NC} {video_name}{}",
                             if i == 0 {
@@ -318,12 +319,13 @@ async fn parse_bili(
                 loop {
                     let url = match urls.next() {
                         Some(url) => {
-                            if !options.allow_mcdn && url.contains("mcdn.bilivideo") {
+                            let u = Url::parse(url).unwrap();
+                            let host = u.host_str().unwrap();
+                            if !options.allow_mcdn && is_mcdn(&host) {
                                 continue;
                             }
 
-                            let u = Url::parse(url).unwrap();
-                            info!("CDN: {}", u.host().unwrap());
+                            info!("CDN: {}", host);
                             println!(
                                 " {GREEN}Downloading{NC} {audio_name}{}",
                                 if i == 0 {
@@ -502,4 +504,11 @@ fn find_expected_quality_video<'a>(
         .iter()
         .filter(|v| v.id == id && codecid.is_none_or(|c| v.codecid == Some(c)))
         .collect()
+}
+
+fn is_mcdn(host: &str) -> bool {
+    host.contains("mcdn.bilivideo")
+        || host.contains("szbdyd.com")
+        || host.contains("mountaintoys.cn")
+        || host.contains("pcdn.biliapi.net")
 }
