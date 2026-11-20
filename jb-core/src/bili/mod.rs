@@ -16,8 +16,9 @@ use wreq::header::{HeaderMap, HeaderName, HeaderValue, InvalidHeaderValue};
 use wreq::{Client, StatusCode};
 
 use self::types::{
-    BiliDetail, BiliError, BiliInfo, BiliResult, DescItem, FingerResult, GaiaValidateData,
-    GaiaValidateResult, GaiaVgateResult, NavResult, PlayurlInfo, QN, VgateData, WbiImg,
+    BangumiInfo, BiliDetail, BiliError, BiliInfo, BiliResult, DescItem, FingerResult,
+    GaiaValidateData, GaiaValidateResult, GaiaVgateResult, NavResult, PlayurlInfo, QN, VgateData,
+    WbiImg,
 };
 
 /// 获取 buvid
@@ -614,6 +615,177 @@ pub async fn validate_gaia(
 
     let res: GaiaValidateResult = response.json().await?;
     Ok(res.data)
+}
+
+pub async fn fetch_result<T: DeserializeOwned, K, V>(
+    client: &Client,
+    url: &str,
+    query: &mut Vec<(&str, String)>,
+    grisk_id: Option<&str>,
+    cookies: &[(K, V)],
+    headers: impl IntoIterator<Item = (&'static str, String)>,
+    cache_file: &PathBuf,
+) -> Result<T, BiliError>
+where
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
+    let response = fetch_raw(client, url, query, grisk_id, cookies, headers).await?;
+
+    let header_voucher = response.headers().get("x-bili-gaia-vvoucher").cloned();
+    let types::BiliResult1 {
+        code,
+        message,
+        result,
+    } = response.json().await?;
+    match code {
+        0 | -352 => {
+            if let Some(v_voucher) = header_voucher {
+                return Err(BiliError::Voucher(v_voucher.to_str().unwrap().to_string()));
+            } else if let Some(ref d) = result
+                && let Some(v_voucher) = d["v_voucher"].as_str()
+            {
+                return Err(BiliError::Voucher(v_voucher.to_string()));
+            }
+        }
+        -404 | 62002 | 62004 => {
+            info!(url, message, "not found");
+            if message == "啥都木有" {
+                return Err(BiliError::Api(
+                    "视频不存在，可能是带有地区限制的视频".to_string(),
+                ));
+            } else {
+                return Err(BiliError::NotFound);
+            }
+        }
+        412 => {
+            return Err(BiliError::RiskControl);
+        }
+        _ => {
+            error!(code, message, "Unknown code");
+            return Err(BiliError::Api(format!("Unknown code: {code}")));
+        }
+    }
+
+    if let Some(d) = result {
+        let pretty = serde_json::to_string_pretty(&d)?;
+        if let Err(e) = fs::write(&cache_file, &pretty).await {
+            error!("Failed to write cache json: {e:?}");
+        } else {
+            info!("Write cache: {}", cache_file.display());
+        }
+
+        Ok(serde_json::from_value(d)?)
+    } else {
+        Err(BiliError::Api("No data".to_string()))
+    }
+}
+
+/// 获取 Bilibili 番剧信息. 无需 wbi 签名.
+pub async fn fetch_bangumi_info<K, V>(
+    client: &Client,
+    ep_id: u64,
+    cookies: &[(K, V)],
+    cache_path: &Path,
+) -> Result<BangumiInfo, BiliError>
+where
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
+    const PGC_VIEW_HOST: &str = "https://api.bilibili.com/pgc/view/web/season";
+
+    let cache_file = cache_path.join(format!("ep{ep_id}.json"));
+    let cache: Option<BangumiInfo> = match fs::read_to_string(&cache_file).await {
+        Ok(text) => match serde_json::from_str(&text) {
+            Ok(value) => Some(value),
+            Err(e) => {
+                warn!("Failed to parse cached json: {e}");
+                None
+            }
+        },
+        Err(e) => {
+            dbg!(e);
+            None
+        },
+    };
+    let res: BangumiInfo = if let Some(res) = cache {
+        info!("Using cached json: {}", cache_file.display());
+        res
+    } else {
+        let mut query = vec![("ep_id", ep_id.to_string())];
+        let referer = format!("https://www.bilibili.com/bangumi/play/ep{}", ep_id);
+        let headers = [("referer", referer)];
+
+        fetch_result(
+            client,
+            PGC_VIEW_HOST,
+            &mut query,
+            None,
+            cookies,
+            headers,
+            &cache_file,
+        )
+        .await?
+    };
+
+    Ok(res)
+}
+
+/// 获取番剧播放流
+pub async fn fetch_bangumi_playurl<K, V>(
+    client: &Client,
+    ep_id: u64,
+    aid: u64,
+    bvid: &str,
+    cid: i64,
+    cookies: &[(K, V)],
+    cache_path: &Path,
+) -> Result<PlayurlInfo, BiliError>
+where
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
+    const PGC_PLAYURL_HOST: &str = "https://api.bilibili.com/pgc/player/web/playurl";
+
+    let cache_file = cache_path.join(format!("ep{ep_id}_playurl.json"));
+
+    let mut query = vec![
+        ("avid", aid.to_string()),
+        ("bvid", bvid.to_string()),
+        ("cid", cid.to_string()),
+        ("epid", ep_id.to_string()),
+        ("qn", QN.to_string()),
+        ("fnver", "0".to_string()),
+        ("fnval", "4048".to_string()),
+        ("fourk", "1".to_string()),
+        ("gaia_source", "".to_string()),
+        ("from_client", "BROWSER".to_string()),
+        ("is_main_page", "true".to_string()),
+        ("need_fragment", "false".to_string()),
+        ("isGaiaAvoided", "false".to_string()),
+        ("client_attr", "0".to_string()),
+        ("version_name", "4.10.4".to_string()),
+        ("app_id", "100".to_string()),
+        ("voice_balance", "1".to_string()),
+        ("try_look", "1".to_string()),
+        ("web_location", "1315873".to_string()),
+    ];
+    query.extend(random_dm());
+
+    let referer = format!("https://www.bilibili.com/bangumi/play/ep{}", ep_id);
+    let headers = [("referer", referer)];
+    let res: PlayurlInfo = fetch_result(
+        client,
+        PGC_PLAYURL_HOST,
+        &mut query,
+        None,
+        cookies,
+        headers,
+        &cache_file,
+    )
+    .await?;
+
+    Ok(res)
 }
 
 #[cfg(test)]

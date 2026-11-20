@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use std::process::exit;
 
 use indicatif::BinaryBytes;
-use jb_core::bili::types::{self, BiliId};
-use jb_core::bili::{fetch_bili_info, fetch_playurl, parse_desc};
+use jb_core::bili::types::{self, BiliId, PlayurlInfo};
+use jb_core::bili::{fetch_bili_info, fetch_playurl, fetch_bangumi_info, fetch_bangumi_playurl, parse_desc};
 use regex::{Regex, regex};
 use tokio::fs;
 use tracing::{error, info};
@@ -24,36 +24,42 @@ pub async fn crawler_bili(input: &str, options: &Options) {
     )
     .unwrap();
     let b23_re = Regex::new(r"(?:https?://)?b23\.tv\\?/([0-9a-zA-Z]{7,7})").unwrap();
+    let bangumi_re =
+        Regex::new(r"(?:(?:https?://)?bilibili\.com/bangumi/play/)?ep(\d{1,10})").unwrap();
 
     if let Some(caps) = b23_re.captures(&text) {
         let (_, [b23_id]) = caps.extract();
         info!("b23.tv: {b23_id}");
-        let url = format!("https://b23.tv/{}", b23_id);
-        let client = get_client().build().unwrap();
-        let response = match client.get(url).send().await {
-            Ok(r) => r,
-            Err(e) => {
-                error!("failed to request b23.tv: {e}");
+        if b23_id.starts_with("ep") {
+            text = b23_id.to_string();
+        } else {
+            let url = format!("https://b23.tv/{}", b23_id);
+            let client = get_client().build().unwrap();
+            let response = match client.get(url).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    error!("failed to request b23.tv: {e}");
+                    eprintln!("{RED}error{NC}: failed to parse bilibili short link.");
+                    exit(400);
+                }
+            };
+            if let Some(location) = response
+                .headers()
+                .get("location")
+                .and_then(|l| l.to_str().ok())
+            {
+                text = location.to_string();
+            } else {
                 eprintln!("{RED}error{NC}: failed to parse bilibili short link.");
                 exit(400);
             }
-        };
-        if let Some(location) = response
-            .headers()
-            .get("location")
-            .and_then(|l| l.to_str().ok())
-        {
-            text = location.to_string();
-        } else {
-            eprintln!("{RED}error{NC}: failed to parse bilibili short link.");
-            exit(400);
         }
     }
 
     if let Some(caps) = re.captures(&text) {
         let (_, [id]) = caps.extract();
         info!("bilibili video id: {id}");
-        let bili_id = if id.starts_with('a') {
+        let bili_id = if id.starts_with("av") {
             let id = id.strip_prefix("av").unwrap();
             BiliId::AV(id.parse().unwrap())
         } else {
@@ -64,8 +70,19 @@ pub async fn crawler_bili(input: &str, options: &Options) {
             eprintln!("{RED}error{NC}: Invalid avid/bvid: {id}");
             exit(400);
         };
-        if let Err(e) = parse_bili(aid, bvid, options).await {
-            eprintln!("{RED}error{NC}: failed to parse bilibili video id: {e}");
+        if let Err(e) = parse_bili(aid, &bvid, options).await {
+            eprintln!("{RED}error{NC}: failed to get bilibili video (bvid: {bvid}): {e}");
+            exit(500);
+        }
+        exit(0);
+    }
+
+    if let Some(caps) = bangumi_re.captures(&text) {
+        let (_, [id]) = caps.extract();
+        info!("bilibili bangumi ep_id: {id}");
+        let ep_id = id.parse().unwrap();
+        if let Err(e) = parse_bangumi(ep_id, options).await {
+            eprintln!("{RED}error{NC}: failed to get bilibili bangumi (ep_id: {ep_id}): {e}");
             exit(500);
         }
         exit(0);
@@ -74,15 +91,13 @@ pub async fn crawler_bili(input: &str, options: &Options) {
 
 async fn parse_bili(
     aid: u64,
-    bvid: String,
+    bvid: &str,
     options: &Options,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let cache_dir = crate::home_dir().unwrap_or(PathBuf::from(".")).join("bili");
     fs::create_dir_all(&cache_dir).await?;
 
     let client = get_client().build()?;
-    let referer = format!("https://www.bilibili.com/video/{}/", bvid);
-    let headers = vec![("referer", referer)];
 
     let types::BiliInfo {
         title,
@@ -123,6 +138,33 @@ async fn parse_bili(
     let playurl =
         fetch_playurl(&client, aid, &bvid, cid, None, &options.cookies, &cache_dir).await?;
 
+    let referer = format!("https://www.bilibili.com/video/{}/", bvid);
+    let headers = vec![("referer", referer)];
+    let key = format!("{bvid}_{cid}");
+    do_playurl(&client, playurl, &key, options, &headers).await?;
+
+    if !options.info {
+        let pic_path = format!("{key}_pic.jpg");
+        println!(" {GREEN}Downloading{NC} {pic_path}");
+        match stream_download(&client, &pic, &pic_path, &headers).await {
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("{RED}error{NC}: {e}");
+                exit(1);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn do_playurl(
+    client: &wreq::Client,
+    playurl: PlayurlInfo,
+    key: &str,
+    options: &Options,
+    headers: &[(&str, String)],
+) -> Result<(), Box<dyn std::error::Error>> {
     let quality = playurl.quality.unwrap();
     let accept_quality = playurl.accept_quality.unwrap();
     let accept_description = playurl.accept_description.unwrap();
@@ -254,7 +296,6 @@ async fn parse_bili(
             &accept_description,
         );
 
-        let key = format!("{bvid}_{cid}");
         let name = format!(
             "{key}_{}+{}.mp4",
             video.id,
@@ -384,19 +425,9 @@ async fn parse_bili(
                 }
             } else {
                 if options.keep_temps {
-                    fs::rename(video_name, name).await?;
-                } else {
                     fs::copy(video_name, name).await?;
-                }
-            }
-
-            let pic_path = format!("{key}_pic.jpg");
-            println!(" {GREEN}Downloading{NC} {pic_path}");
-            match stream_download(&client, &pic, &pic_path, &headers).await {
-                Ok(_) => {}
-                Err(e) => {
-                    eprintln!("{RED}error{NC}: {e}");
-                    exit(1);
+                } else {
+                    fs::rename(video_name, name).await?;
                 }
             }
 
@@ -405,6 +436,66 @@ async fn parse_bili(
             println!(" {GREEN}Downloaded.{NC}")
         }
     }
+
+    Ok(())
+}
+
+async fn parse_bangumi(ep_id: u64, options: &Options) -> Result<(), Box<dyn std::error::Error>> {
+    let cache_dir = crate::home_dir().unwrap_or(PathBuf::from(".")).join("bili");
+    fs::create_dir_all(&cache_dir).await?;
+
+    let client = get_client().build()?;
+
+    let types::BangumiInfo {
+        media_id,
+        season_title,
+        episodes,
+        ..
+    } = fetch_bangumi_info(&client, ep_id, &options.cookies, &cache_dir).await?;
+
+    println!();
+    println!(" {CYAN}{}{NC}  哔哩哔哩 Bilibili", align_left("Site:", 15));
+    println!(" {CYAN}{}{NC}  {}", align_left("media_id:", 15), media_id);
+    println!(
+        " {CYAN}{}{NC}  {}",
+        align_left("Season Title:", 15),
+        season_title
+    );
+
+    let episode = episodes.iter().find(|ep| ep.ep_id == ep_id);
+    let episode = if let Some(ep) = episode {
+        ep
+    } else {
+        eprintln!("{RED}error{NC}: episode {ep_id} not found");
+        return Ok(());
+    };
+
+    println!(
+        " {CYAN}{}{NC}  {}",
+        align_left("Episode ID:", 15),
+        episode.ep_id
+    );
+    println!(
+        " {CYAN}{}{NC}  {}",
+        align_left("Episode Title:", 15),
+        episode.show_title
+    );
+
+    let cid = episode.cid;
+    let playurl = fetch_bangumi_playurl(
+        &client,
+        ep_id,
+        episode.aid,
+        &episode.bvid,
+        cid,
+        &options.cookies,
+        &cache_dir
+    ).await?;
+
+    let referer = format!("https://www.bilibili.com/bangumi/play/{}", ep_id);
+    let headers = vec![("referer", referer)];
+    let key = format!("ep{ep_id}_{cid}");
+    do_playurl(&client, playurl, &key, options, &headers).await?;
 
     Ok(())
 }
