@@ -2,6 +2,7 @@
 
 mod bili;
 mod core;
+mod utils;
 
 use std::env;
 use std::fs;

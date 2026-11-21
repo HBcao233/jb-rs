@@ -132,7 +132,7 @@ async fn parse_bili(
             break;
         }
     }
-    let types::Page { cid, .. } = page.unwrap_or_else(|| {
+    let types::Page { cid, part, .. } = page.unwrap_or_else(|| {
         eprintln!("{RED}error{NC}: no video with page=`{p}` found.");
         exit(1)
     });
@@ -142,11 +142,22 @@ async fn parse_bili(
 
     let referer = format!("https://www.bilibili.com/video/{}/", bvid);
     let headers = vec![("referer", referer)];
-    let key = format!("{bvid}_{cid}");
-    do_playurl(&client, playurl, &key, options, &headers).await?;
+    let mut target = title.to_string();
+    if p > 1 {
+        target.push_str(" P");
+        target.push_str(&p.to_string());
+        target.push(' ');
+        target.push_str(&part);
+    }
+    target = match crate::utils::sanitize_file_stem(&target) {
+        Some(target) => target,
+        None => format!("{bvid}_{cid}"),
+    };
+
+    do_playurl(&client, playurl, &target, options, &headers).await?;
 
     if !options.info {
-        let pic_path = format!("{key}_pic.jpg");
+        let pic_path = format!("{target}_pic.jpg");
         println!(" {GREEN}Downloading{NC} {pic_path}");
         match stream_download(&client, &pic, &pic_path, &headers).await {
             Ok(_) => {}
@@ -163,7 +174,7 @@ async fn parse_bili(
 async fn do_playurl(
     client: &wreq::Client,
     playurl: PlayurlInfo,
-    key: &str,
+    target: &str,
     options: &Options,
     headers: &[(&str, String)],
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -298,15 +309,11 @@ async fn do_playurl(
             &accept_description,
         );
 
-        let name = format!(
-            "{key}_{}+{}.mp4",
-            video.id,
-            audio.as_ref().map(|a| a.id).unwrap_or_default()
-        );
+        let name = format!("{target}.mp4");
 
         if !fs::try_exists(&name).await? {
             let video_name = format!(
-                "{key}_video_{}{}.mp4",
+                "{target}_video_{}{}.mp4",
                 video.id,
                 if let Some(c) = video.codecid {
                     format!("-{c}")
@@ -355,7 +362,7 @@ async fn do_playurl(
 
             println!();
             if let Some(au) = audio {
-                let audio_name = format!("{key}_audio_{}.mp4", au.id);
+                let audio_name = format!("{target}_audio_{}.mp4", au.id);
 
                 let mut urls = au.urls.iter();
                 let mut i = 0;
@@ -464,24 +471,40 @@ async fn parse_bangumi(ep_id: u64, options: &Options) -> Result<(), Box<dyn std:
         season_title
     );
 
-    let episode = episodes.iter().find(|ep| ep.ep_id == ep_id);
-    let episode = if let Some(ep) = episode {
-        ep
+    let index = if let Some(index) = episodes.iter().position(|ep| ep.ep_id == ep_id) {
+        index
     } else {
         eprintln!("{RED}error{NC}: episode {ep_id} not found");
         return Ok(());
     };
+    let previous = index.checked_sub(1).and_then(|i| episodes.get(i));
+    let episode = &episodes[index];
+    let next = episodes.get(index + 1);
 
     println!(
         " {CYAN}{}{NC}  {}",
         align_left("Episode ID:", 15),
-        episode.ep_id
+        format!("ep{}", episode.ep_id)
     );
     println!(
         " {CYAN}{}{NC}  {}",
         align_left("Episode Title:", 15),
         episode.show_title
     );
+    if let Some(prev) = previous {
+        println!(
+            " {CYAN}{}{NC}  {}",
+            align_left("Previous episode:", 15),
+            format!("[ep{}] {}", prev.ep_id, prev.show_title)
+        );
+    }
+    if let Some(ne) = next {
+        println!(
+            " {CYAN}{}{NC}  {}",
+            align_left("Next episode:", 15),
+            format!("[ep{}] {}", ne.ep_id, ne.show_title)
+        );
+    }
 
     let cid = episode.cid;
     let playurl = fetch_bangumi_playurl(
@@ -497,8 +520,13 @@ async fn parse_bangumi(ep_id: u64, options: &Options) -> Result<(), Box<dyn std:
 
     let referer = format!("https://www.bilibili.com/bangumi/play/{}", ep_id);
     let headers = vec![("referer", referer)];
-    let key = format!("ep{ep_id}_{cid}");
-    do_playurl(&client, playurl, &key, options, &headers).await?;
+    let mut target = format!("{season_title} {}", episode.show_title);
+    target = match crate::utils::sanitize_file_stem(&target) {
+        Some(target) => target,
+        None => format!("ep{ep_id}_{cid}"),
+    };
+
+    do_playurl(&client, playurl, &target, options, &headers).await?;
 
     Ok(())
 }
