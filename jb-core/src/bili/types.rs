@@ -230,6 +230,8 @@ pub struct PlayurlInfo {
     pub dash: Option<DashInfo>,
     /// durl 流
     pub durl: Option<Vec<DurlInfo>>,
+    /// 所以可选的视频画质信息
+    pub support_formats: Option<Vec<SupportFormat>>,
 }
 
 /// dash 流信息
@@ -273,6 +275,31 @@ pub struct DurlInfo {
     pub url: String,
     /// 备用链接
     pub backup_url: Option<Vec<String>>,
+}
+
+/// 画质格式信息
+#[derive(Debug, Deserialize)]
+pub struct SupportFormat {
+    /// flags, attribute & 1: 支持 HDR, attribute & 2: 支持 Dolby Vision, attribute & 4: 支持高帧率
+    pub attribute: i32,
+    /// 画质 id
+    pub quality: i32,
+    /// 旧版描述, "高清 720P"
+    pub description: String,
+    /// 新版描述, 如 "720P 准高清"
+    pub new_description: String,
+    /// 短描述, 如 "720P"
+    pub display_desc: String,
+    /// 是否有预览
+    pub has_preview: bool,
+    /// 格式, "mp4", "flv480", "flv720", "flv", "hdflv2"
+    pub format: String,
+    /// 支持的编码格式
+    pub codecs: Vec<String>,
+    /// 是否需要登录
+    pub need_login: Option<bool>,
+    /// 是否需要 vip
+    pub need_vip: Option<bool>,
 }
 
 #[derive(Deserialize)]

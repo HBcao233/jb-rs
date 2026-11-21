@@ -1,10 +1,9 @@
 use std::borrow::Cow;
-use std::fmt::Write;
 use std::path::PathBuf;
 use std::process::exit;
 
 use indicatif::BinaryBytes;
-use jb_core::bili::types::{self, BiliId, Episode, PlayurlInfo, SectionEpisode};
+use jb_core::bili::types::{self, BiliId, Episode, PlayurlInfo, SectionEpisode, SupportFormat};
 use jb_core::bili::{
     fetch_bangumi_info, fetch_bangumi_playurl, fetch_bili_info, fetch_playurl, parse_desc,
 };
@@ -183,8 +182,7 @@ async fn do_playurl(
     headers: &[(&str, String)],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let quality = playurl.quality.unwrap();
-    let accept_quality = playurl.accept_quality.unwrap();
-    let accept_description = playurl.accept_description.unwrap();
+    let support_formats = playurl.support_formats.unwrap();
 
     let mut videos = Vec::new();
     let mut audios = Vec::new();
@@ -263,36 +261,21 @@ async fn do_playurl(
     let pad = if width >= 80 { "     " } else { "   " };
 
     let audio = audios.into_iter().max_by_key(|x| x.id);
-    let show_videos = if let Some(ref expected_quality) = options.quality {
-        find_expected_quality_video(&videos, expected_quality)
-    } else {
-        videos.iter().collect()
-    };
 
     if options.info {
-        if show_videos.is_empty()
-            && let Some(ref expected_quality) = options.quality
-        {
-            eprintln!("{RED}error{NC}: no videos with quality=`{expected_quality}` found.");
-            exit(400);
-        }
-
         println!(" {CYAN}Videos:{NC}");
 
-        for video in show_videos {
-            print_stream(
-                pad,
-                video,
-                audio.as_ref(),
-                &accept_quality,
-                &accept_description,
-            );
+        for format in support_formats {
+            let video = videos.iter().find(|v| v.id == format.quality);
+            print_stream(pad, (&format).into(), video, audio.as_ref());
         }
 
         exit(0);
     } else {
-        let video = if options.quality.is_some() {
-            show_videos.into_iter().min_by_key(|v| v.codecid)
+        let video = if let Some(ref expected_quality) = options.quality {
+            find_expected_quality_video(&videos, expected_quality)
+                .into_iter()
+                .min_by_key(|v| v.codecid)
         } else {
             videos.first()
         }
@@ -305,13 +288,24 @@ async fn do_playurl(
         });
         println!(" {CYAN}Selected video:{NC}");
 
-        print_stream(
-            pad,
-            video,
-            audio.as_ref(),
-            &accept_quality,
-            &accept_description,
-        );
+        let format = support_formats.iter().find(|x| x.quality == video.id);
+        let format = match format {
+            Some(fmt) => fmt.into(),
+            None => Format {
+                quality: video.id,
+                new_description: match video.id {
+                    16 => "360P 流畅",
+                    32 => "480P 标清",
+                    64 => "720P 准高清",
+                    80 => "1080P 高清",
+                    112 => "1080P 高码率",
+                    120 => "4K 超高清",
+                    125 => "HDR 真彩色",
+                    _ => "未知画质",
+                },
+            },
+        };
+        print_stream(pad, format, Some(video), audio.as_ref());
 
         let name = format!("{target}.mp4");
 
@@ -639,43 +633,64 @@ struct Audio<'a> {
     urls: Vec<Cow<'a, str>>,
 }
 
-fn print_stream(
-    pad: &str,
-    video: &Video,
-    audio: Option<&Audio>,
-    accept_quality: &[i32],
-    accept_description: &[String],
-) {
-    let mut size = video.size;
-    if let Some(a) = audio {
-        size += a.size;
+struct Format<'a> {
+    quality: i32,
+    new_description: &'a str,
+}
+
+impl<'a> From<&'a SupportFormat> for Format<'a> {
+    fn from(x: &'a SupportFormat) -> Self {
+        Self {
+            quality: x.quality,
+            new_description: &x.new_description,
+        }
+    }
+}
+
+fn print_stream<'a>(pad: &str, format: Format<'a>, video: Option<&Video>, audio: Option<&Audio>) {
+    let mut quality = format.quality.to_string();
+    let mut description = format.new_description.to_string();
+    let mut size = 0;
+
+    if let Some(v) = video {
+        if let Some(codecid) = v.codecid {
+            quality.push('-');
+            quality.push_str(&codecid.to_string());
+        }
+
+        if let Some(c) = v.codecs {
+            description.push(' ');
+            description.push_str(c);
+        }
+
+        size = v.size;
+        if let Some(a) = audio {
+            size += a.size;
+        }
     }
 
-    let mut quality = accept_quality
-        .iter()
-        .position(|x| *x == video.id)
-        .and_then(|index| accept_description.get(index))
-        .cloned()
-        .unwrap_or(String::from("高清 720P"));
-    if let Some(c) = video.codecs {
-        quality.push(' ');
-        quality.push_str(c);
-    }
-    let size = BinaryBytes(size);
-    let mut q = video.id.to_string();
-    if let Some(codecid) = video.codecid {
-        q.push('-');
-        write!(q, "{codecid}").unwrap();
-    }
-
-    println!("{pad}{BLUE}[{}]{NC}", q);
-    println!("{pad}{CYAN}{}{NC}  {}", align_left("Quality:", 10), quality);
-    println!("{pad}{CYAN}{}{NC}  {}", align_left("Size:", 10), size);
+    println!("{pad}{BLUE}[{}]{NC}", quality);
     println!(
-        "{pad}{CYAN}{}{NC}  jb -q {} ...",
-        align_left("# Download with", 10),
-        q
+        "{pad}{CYAN}{}{NC}  {}",
+        align_left("Quality:", 10),
+        description
     );
+    if size > 0 {
+        println!(
+            "{pad}{CYAN}{}{NC}  {}",
+            align_left("Size:", 10),
+            BinaryBytes(size)
+        );
+    }
+    if video.is_some() {
+        println!(
+            "{pad}{CYAN}{}{NC}  jb -q {} ...",
+            align_left("# Download with", 10),
+            quality
+        );
+    } else {
+        println!("{pad}{CYAN}# Need login{NC}");
+    }
     println!();
 }
 
