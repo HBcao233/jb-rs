@@ -662,7 +662,7 @@ pub struct Episode {
     /// 发布日期
     pub pub_time: u64,
     // 暂时不知道含义, 固定为 0
-    pub pv: i32,
+    // pub pv: i32,
     /// 是否是花絮/预告, 0: 正片, 1: 花絮/预告
     pub section_type: i32,
     /// 标题
@@ -711,7 +711,7 @@ pub struct SectionEpisode {
     /// 发布日期
     pub pub_time: u64,
     // 暂时不知道含义, 固定为 0
-    pub pv: i32,
+    // pub pv: i32,
     /// 是否是花絮/预告, 0: 正片, 1: 花絮/预告
     pub section_type: i32,
     /// 标题

@@ -1,3 +1,5 @@
+//! jmcomic types
+
 use serde::Deserialize;
 
 /// jmcomic 请求错误
@@ -19,12 +21,15 @@ pub enum JMError {
     #[error("JSON 解析失败: {0}")]
     Json(#[from] serde_json::Error),
 
+    /// Base64 解码错误
     #[error("解码错误")]
     Base64(#[from] base64::DecodeError),
 
+    /// AES-256-ECB 解密错误
     #[error("解密错误")]
     Aes(#[from] aes::cipher::block_padding::Error),
 
+    /// int解析错误
     #[error("字符串解析为int失败: {0}")]
     ParseInt(#[from] std::num::ParseIntError),
 
@@ -82,14 +87,20 @@ pub struct AlbumInfo {
     pub total_views: String,
 }
 
+/// 相关作品
 #[derive(Debug, Deserialize)]
 pub struct RelatedAlbum {
+    /// 作者
     pub author: String,
+    /// 本子 id
     pub id: String,
-    pub image: String,
+    /// 本子名
     pub name: String,
+    /// 图片文件名
+    pub image: String,
 }
 
+/// 章节信息
 #[derive(Debug, Deserialize)]
 pub struct Chapter {
     /// 创建时间, 秒级时间戳

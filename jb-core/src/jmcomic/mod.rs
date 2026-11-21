@@ -1,3 +1,5 @@
+//! jmcomic
+
 pub mod types;
 
 use aes::cipher::{BlockModeDecrypt, KeyInit, block_padding::Pkcs7};
@@ -32,6 +34,7 @@ const API_DOMAINS: [&str; 5] = [
     "www.cdnutc.me",
 ];
 
+/// CDN domains
 pub const CDN_DOMAINS: [&str; 6] = [
     "cdn-msp.jmapiproxy1.cc",
     "cdn-msp.jmapiproxy2.cc",
@@ -48,6 +51,7 @@ fn decrypt<T: DeserializeOwned>(encoded: &str, key: [u8; 32]) -> Result<T, JMErr
     Ok(serde_json::from_slice(&res)?)
 }
 
+/// 解密 jmcomic 加密数据
 pub fn decrypt_data<T: DeserializeOwned>(encoded: &str, ts: &str) -> Result<T, JMError> {
     let mut ctx = md5::Context::new();
     ctx.consume(ts.as_bytes());
@@ -56,6 +60,7 @@ pub fn decrypt_data<T: DeserializeOwned>(encoded: &str, ts: &str) -> Result<T, J
     decrypt(encoded, key.as_bytes().try_into().unwrap())
 }
 
+/// 获取最新 jmcomic api 域名
 pub async fn resolve_domains(client: &Client) -> Vec<String> {
     for url in DOMAIN_SERVER_URLS {
         if let Ok(response) = client.get(url).send().await
@@ -172,10 +177,12 @@ async fn call_json<Q: Serialize + ?Sized, T: DeserializeOwned>(
     Err(JMError::Api("请求失败".to_string()))
 }
 
+/// 获取本子详情
 pub async fn fetch_album_info(client: &Client, album_id: i32) -> Result<AlbumInfo, JMError> {
     call_json(client, "/album", &[("id", album_id)]).await
 }
 
+/// 获取图片 scramble_id
 pub async fn fetch_scramble_id(client: &Client, photo_id: i32) -> Result<i32, JMError> {
     use futures_util::stream::StreamExt;
 
@@ -214,6 +221,7 @@ pub async fn fetch_scramble_id(client: &Client, photo_id: i32) -> Result<i32, JM
     Err(JMError::Api(String::from("解析失败")))
 }
 
+/// 获取本子章节
 pub async fn fetch_chapter(client: &Client, photo_id: i32) -> Result<serde_json::Value, JMError> {
     call_json(client, "/chapter", &[("id", photo_id)]).await
 }

@@ -5,7 +5,9 @@ use std::process::exit;
 
 use indicatif::BinaryBytes;
 use jb_core::bili::types::{self, BiliId, PlayurlInfo};
-use jb_core::bili::{fetch_bili_info, fetch_playurl, fetch_bangumi_info, fetch_bangumi_playurl, parse_desc};
+use jb_core::bili::{
+    fetch_bangumi_info, fetch_bangumi_playurl, fetch_bili_info, fetch_playurl, parse_desc,
+};
 use regex::{Regex, regex};
 use tokio::fs;
 use tracing::{error, info};
@@ -105,7 +107,7 @@ async fn parse_bili(
         pic,
         pages,
         ..
-    } = fetch_bili_info(&client, aid, &bvid, &options.cookies, &cache_dir).await?;
+    } = fetch_bili_info(&client, aid, bvid, &options.cookies, &cache_dir).await?;
     println!();
     println!(" {CYAN}{}{NC}  哔哩哔哩 Bilibili", align_left("Site:", 13));
     println!(" {CYAN}{}{NC}  {}", align_left("BVid:", 13), bvid);
@@ -136,7 +138,7 @@ async fn parse_bili(
     });
 
     let playurl =
-        fetch_playurl(&client, aid, &bvid, cid, None, &options.cookies, &cache_dir).await?;
+        fetch_playurl(&client, aid, bvid, cid, None, &options.cookies, &cache_dir).await?;
 
     let referer = format!("https://www.bilibili.com/video/{}/", bvid);
     let headers = vec![("referer", referer)];
@@ -320,7 +322,7 @@ async fn do_playurl(
                     Some(url) => {
                         let u = Url::parse(url).unwrap();
                         let host = u.host_str().unwrap();
-                        if !options.allow_mcdn && is_mcdn(&host) {
+                        if !options.allow_mcdn && is_mcdn(host) {
                             continue;
                         }
 
@@ -340,7 +342,7 @@ async fn do_playurl(
                         exit(1);
                     }
                 };
-                match stream_download(&client, url, &video_name, &headers).await {
+                match stream_download(client, url, &video_name, headers).await {
                     Ok(_) => {
                         break;
                     }
@@ -362,7 +364,7 @@ async fn do_playurl(
                         Some(url) => {
                             let u = Url::parse(url).unwrap();
                             let host = u.host_str().unwrap();
-                            if !options.allow_mcdn && is_mcdn(&host) {
+                            if !options.allow_mcdn && is_mcdn(host) {
                                 continue;
                             }
 
@@ -382,7 +384,7 @@ async fn do_playurl(
                             exit(1);
                         }
                     };
-                    match stream_download(&client, url, &audio_name, &headers).await {
+                    match stream_download(client, url, &audio_name, headers).await {
                         Ok(_) => {
                             break;
                         }
@@ -489,8 +491,9 @@ async fn parse_bangumi(ep_id: u64, options: &Options) -> Result<(), Box<dyn std:
         &episode.bvid,
         cid,
         &options.cookies,
-        &cache_dir
-    ).await?;
+        &cache_dir,
+    )
+    .await?;
 
     let referer = format!("https://www.bilibili.com/bangumi/play/{}", ep_id);
     let headers = vec![("referer", referer)];

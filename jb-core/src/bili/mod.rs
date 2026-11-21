@@ -11,7 +11,7 @@ use rand::distr::Alphanumeric;
 use rand::{RngExt, random_range};
 use serde::de::DeserializeOwned;
 use tokio::fs;
-use tracing::{error, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 use wreq::header::{HeaderMap, HeaderName, HeaderValue, InvalidHeaderValue};
 use wreq::{Client, StatusCode};
 
@@ -239,6 +239,7 @@ where
     Ok(response)
 }
 
+/// bilibili 请求
 pub async fn fetch<T: DeserializeOwned, K, V>(
     client: &Client,
     url: &str,
@@ -617,6 +618,7 @@ pub async fn validate_gaia(
     Ok(res.data)
 }
 
+/// bilibili 请求
 pub async fn fetch_result<T: DeserializeOwned, K, V>(
     client: &Client,
     url: &str,
@@ -704,9 +706,9 @@ where
             }
         },
         Err(e) => {
-            dbg!(e);
+            debug!("Read cache failed: {e}");
             None
-        },
+        }
     };
     let res: BangumiInfo = if let Some(res) = cache {
         info!("Using cached json: {}", cache_file.display());
