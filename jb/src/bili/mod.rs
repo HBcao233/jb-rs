@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::exit;
 
 use indicatif::BinaryBytes;
-use jb_core::bili::types::{self, BiliId, PlayurlInfo};
+use jb_core::bili::types::{self, BiliId, Episode, PlayurlInfo, SectionEpisode};
 use jb_core::bili::{
     fetch_bangumi_info, fetch_bangumi_playurl, fetch_bili_info, fetch_playurl, parse_desc,
 };
@@ -28,8 +28,12 @@ pub async fn crawler_bili(input: &str, options: &Options) {
     let b23_re = Regex::new(r"(?:https?://)?b23\.tv\\?/([0-9a-zA-Z]{7,7})").unwrap();
     let bangumi_re =
         Regex::new(r"(?:(?:https?://)?bilibili\.com/bangumi/play/)?ep(\d{1,10})").unwrap();
+    let bangumi_b23_re = Regex::new(r"(?:https?://)?b23\.tv\\?/(ep\d{1,10})").unwrap();
 
-    if let Some(caps) = b23_re.captures(&text) {
+    if let Some(caps) = bangumi_b23_re.captures(&text) {
+        let (_, [ep]) = caps.extract();
+        text = ep.to_string();
+    } else if let Some(caps) = b23_re.captures(&text) {
         let (_, [b23_id]) = caps.extract();
         info!("b23.tv: {b23_id}");
         if b23_id.starts_with("ep") {
@@ -459,6 +463,7 @@ async fn parse_bangumi(ep_id: u64, options: &Options) -> Result<(), Box<dyn std:
         media_id,
         season_title,
         episodes,
+        section,
         ..
     } = fetch_bangumi_info(&client, ep_id, &options.cookies, &cache_dir).await?;
 
@@ -471,47 +476,53 @@ async fn parse_bangumi(ep_id: u64, options: &Options) -> Result<(), Box<dyn std:
         season_title
     );
 
-    let index = if let Some(index) = episodes.iter().position(|ep| ep.ep_id == ep_id) {
-        index
-    } else {
-        eprintln!("{RED}error{NC}: episode {ep_id} not found");
-        return Ok(());
-    };
-    let previous = index.checked_sub(1).and_then(|i| episodes.get(i));
-    let episode = &episodes[index];
-    let next = episodes.get(index + 1);
+    let (ep, previous, next) =
+        if let Some((episode, previous, next)) = find_episode(&episodes, ep_id) {
+            (Ep::from(episode), previous, next)
+        } else if let Some(ref sections) = section {
+            let mut t = None;
+            for sec in sections.iter() {
+                if let Some(ep) = find_section_episode(&sec.episodes, ep_id) {
+                    t = Some(ep);
+                }
+            }
 
-    println!(
-        " {CYAN}{}{NC}  {}",
-        align_left("Episode ID:", 15),
-        format!("ep{}", episode.ep_id)
-    );
+            if let Some((ep, prev, next)) = t
+                && let Ok(ok) = ep.try_into()
+            {
+                (ok, prev, next)
+            } else {
+                eprintln!("{RED}error{NC}: episode {ep_id} not found");
+                return Ok(());
+            }
+        } else {
+            eprintln!("{RED}error{NC}: episode {ep_id} not found");
+            return Ok(());
+        };
+
+    println!(" {CYAN}{}{NC}  ep{}", align_left("Episode ID:", 15), ep_id);
     println!(
         " {CYAN}{}{NC}  {}",
         align_left("Episode Title:", 15),
-        episode.show_title
+        ep.show_title
     );
     if let Some(prev) = previous {
         println!(
             " {CYAN}{}{NC}  {}",
             align_left("Previous episode:", 15),
-            format!("[ep{}] {}", prev.ep_id, prev.show_title)
+            prev
         );
     }
     if let Some(ne) = next {
-        println!(
-            " {CYAN}{}{NC}  {}",
-            align_left("Next episode:", 15),
-            format!("[ep{}] {}", ne.ep_id, ne.show_title)
-        );
+        println!(" {CYAN}{}{NC}  {}", align_left("Next episode:", 15), ne);
     }
 
-    let cid = episode.cid;
+    let cid = ep.cid;
     let playurl = fetch_bangumi_playurl(
         &client,
         ep_id,
-        episode.aid,
-        &episode.bvid,
+        ep.aid,
+        ep.bvid,
         cid,
         &options.cookies,
         &cache_dir,
@@ -520,7 +531,7 @@ async fn parse_bangumi(ep_id: u64, options: &Options) -> Result<(), Box<dyn std:
 
     let referer = format!("https://www.bilibili.com/bangumi/play/{}", ep_id);
     let headers = vec![("referer", referer)];
-    let mut target = format!("{season_title} {}", episode.show_title);
+    let mut target = format!("{season_title} {}", ep.show_title);
     target = match crate::utils::sanitize_file_stem(&target) {
         Some(target) => target,
         None => format!("ep{ep_id}_{cid}"),
@@ -529,6 +540,89 @@ async fn parse_bangumi(ep_id: u64, options: &Options) -> Result<(), Box<dyn std:
     do_playurl(&client, playurl, &target, options, &headers).await?;
 
     Ok(())
+}
+
+fn find_episode(
+    episodes: &[Episode],
+    ep_id: u64,
+) -> Option<(&Episode, Option<String>, Option<String>)> {
+    if let Some(index) = episodes.iter().position(|ep| ep.ep_id == ep_id) {
+        let previous = index.checked_sub(1).and_then(|i| episodes.get(i));
+        let episode = &episodes[index];
+        let next = episodes.get(index + 1);
+
+        let previous = previous.map(|prev| format!("[ep{}] {}", prev.ep_id, prev.show_title));
+        let next = next.map(|ne| format!("[ep{}] {}", ne.ep_id, ne.show_title));
+        Some((episode, previous, next))
+    } else {
+        None
+    }
+}
+
+fn find_section_episode(
+    episodes: &[SectionEpisode],
+    ep_id: u64,
+) -> Option<(&SectionEpisode, Option<String>, Option<String>)> {
+    if let Some(index) = episodes.iter().position(|ep| ep.ep_id == ep_id) {
+        let previous = index.checked_sub(1).and_then(|i| episodes.get(i));
+        let episode = &episodes[index];
+        let next = episodes.get(index + 1);
+
+        let previous = previous.map(|ep| {
+            if let Some(ref title) = ep.show_title {
+                format!("[ep{}] {}", ep.ep_id, title)
+            } else {
+                format!("[ep{}]", ep.ep_id)
+            }
+        });
+        let next = next.map(|ep| {
+            if let Some(ref title) = ep.show_title {
+                format!("[ep{}] {}", ep.ep_id, title)
+            } else {
+                format!("[ep{}]", ep.ep_id)
+            }
+        });
+        Some((episode, previous, next))
+    } else {
+        None
+    }
+}
+
+struct Ep<'a> {
+    aid: u64,
+    bvid: &'a str,
+    cid: i64,
+    show_title: &'a str,
+}
+
+impl<'a> From<&'a Episode> for Ep<'a> {
+    fn from(x: &'a Episode) -> Self {
+        Self {
+            aid: x.aid,
+            bvid: &x.bvid,
+            cid: x.cid,
+            show_title: &x.show_title,
+        }
+    }
+}
+
+impl<'a> TryFrom<&'a SectionEpisode> for Ep<'a> {
+    type Error = ();
+
+    fn try_from(x: &'a SectionEpisode) -> Result<Self, Self::Error> {
+        if let Some(ref bvid) = x.bvid
+            && let Some(ref show_title) = x.show_title
+        {
+            Ok(Self {
+                aid: x.aid,
+                bvid,
+                cid: x.cid,
+                show_title,
+            })
+        } else {
+            Err(())
+        }
+    }
 }
 
 struct Video<'a> {

@@ -375,7 +375,7 @@ pub struct BangumiInfo {
     /// 剧集列表
     pub episodes: Vec<Episode>,
     /// 板块列表
-    pub section: Vec<Section>,
+    pub section: Option<Vec<Section>>,
 }
 
 /// 区域
