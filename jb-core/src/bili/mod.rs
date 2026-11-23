@@ -21,6 +21,13 @@ use self::types::{
     WbiImg,
 };
 
+pub fn is_mcdn(host: &str) -> bool {
+    host.contains("mcdn.bilivideo")
+        || host.contains("szbdyd.com")
+        || host.contains("mountaintoys.cn")
+        || host.contains("pcdn.biliapi.net")
+}
+
 /// 获取 buvid
 pub async fn get_buvid(client: &Client) -> Option<(String, String)> {
     const FINGER_HOST: &str = "https://api.bilibili.com/x/frontend/finger/spi";

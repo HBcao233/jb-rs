@@ -5,7 +5,7 @@ use std::process::exit;
 use indicatif::BinaryBytes;
 use jb_core::bili::types::{self, BiliId, Episode, PlayurlInfo, SectionEpisode, SupportFormat};
 use jb_core::bili::{
-    fetch_bangumi_info, fetch_bangumi_playurl, fetch_bili_info, fetch_playurl, parse_desc,
+    fetch_bangumi_info, fetch_bangumi_playurl, fetch_bili_info, fetch_playurl, is_mcdn, parse_desc,
 };
 use regex::{Regex, regex};
 use tokio::fs;
@@ -337,7 +337,7 @@ async fn do_playurl(
                             if i == 0 {
                                 String::new()
                             } else {
-                                format!("Retry {i}")
+                                format!(" Retry {i}")
                             }
                         );
                         url
@@ -735,11 +735,4 @@ fn find_expected_quality_video<'a>(
         .iter()
         .filter(|v| v.id == id && codecid.is_none_or(|c| v.codecid == Some(c)))
         .collect()
-}
-
-fn is_mcdn(host: &str) -> bool {
-    host.contains("mcdn.bilivideo")
-        || host.contains("szbdyd.com")
-        || host.contains("mountaintoys.cn")
-        || host.contains("pcdn.biliapi.net")
 }
