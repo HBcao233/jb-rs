@@ -34,7 +34,7 @@ pub struct Options {
     cookies: Vec<(String, String)>,
     quality: Option<String>,
     keep_temps: bool,
-    allow_mcdn: bool,
+    allow_pcdn: bool,
 }
 
 async fn async_main() {
@@ -56,7 +56,7 @@ async fn async_main() {
   -h, --help                      Show this message.
   -q, --quality                   Choose quality of video.
   --keep-temps                    Do not delete the temporary files.
-  --allow-mcdn                    Allows to using mCDN/PCDN links to download.
+  --allow-pcdn                    Allows to using PCDN links to download.
 
 {BLUE}tip{NC}: set environment variable `RUST_LOG=log` to enable verbose.
 "
@@ -109,8 +109,8 @@ async fn async_main() {
                 }
             } else if arg == "--keep-temps" {
                 options.keep_temps = true;
-            } else if arg == "--allow-mcdn" {
-                options.allow_mcdn = true;
+            } else if arg == "--allow-pcdn" {
+                options.allow_pcdn = true;
             }
         } else {
             if input.is_some() {

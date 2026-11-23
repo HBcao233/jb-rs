@@ -21,7 +21,8 @@ use self::types::{
     WbiImg,
 };
 
-pub fn is_mcdn(host: &str) -> bool {
+/// Whether if the host is a bilibili's PCDN (Peer to Peer Content Delivery Network) host.
+pub fn is_pcdn(host: &str) -> bool {
     host.contains("mcdn.bilivideo")
         || host.contains("szbdyd.com")
         || host.contains("mountaintoys.cn")

@@ -5,7 +5,7 @@ use std::process::exit;
 use indicatif::BinaryBytes;
 use jb_core::bili::types::{self, BiliId, Episode, PlayurlInfo, SectionEpisode, SupportFormat};
 use jb_core::bili::{
-    fetch_bangumi_info, fetch_bangumi_playurl, fetch_bili_info, fetch_playurl, is_mcdn, parse_desc,
+    fetch_bangumi_info, fetch_bangumi_playurl, fetch_bili_info, fetch_playurl, is_pcdn, parse_desc,
 };
 use regex::{Regex, regex};
 use tokio::fs;
@@ -327,7 +327,7 @@ async fn do_playurl(
                     Some(url) => {
                         let u = Url::parse(url).unwrap();
                         let host = u.host_str().unwrap();
-                        if !options.allow_mcdn && is_mcdn(host) {
+                        if !options.allow_pcdn && is_pcdn(host) {
                             continue;
                         }
 
@@ -369,7 +369,7 @@ async fn do_playurl(
                         Some(url) => {
                             let u = Url::parse(url).unwrap();
                             let host = u.host_str().unwrap();
-                            if !options.allow_mcdn && is_mcdn(host) {
+                            if !options.allow_pcdn && is_pcdn(host) {
                                 continue;
                             }
 

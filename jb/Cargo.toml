@@ -4,7 +4,6 @@ version = "0.3.0"
 authors = ["HBcao <hbcaoqaq@outlook.com>"]
 license = "MIT OR Apache-2.0"
 description = ""
-homepage = "https://github.com/HBcao233/jbot"
 repository = "https://github.com/HBcao233/jbot"
 keywords = ["cli"]
 categories = []
